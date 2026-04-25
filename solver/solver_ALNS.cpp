@@ -11,6 +11,7 @@
 #include <numeric>
 #include <iomanip>
 #include <cstdint>
+#include <unordered_map>
 #include <omp.h>
 
 using namespace std;
@@ -344,6 +345,68 @@ bool aabb_overlap(const vector<Point>& a, const vector<Point>& b) {
     if (max_ya <= min_yb + EPS || max_yb <= min_ya + EPS) return false;
 
     return true;
+}
+
+// ─────────────────────────────────────────────
+//  SPATIAL INDEX  (grid-cell hash → bay indices)
+// ─────────────────────────────────────────────
+
+struct SpatialIndex {
+    double cell;  // cell size in mm
+    unordered_map<uint64_t, vector<int>> cells;
+
+    void clear() { cells.clear(); }
+
+    static uint64_t key(int cx, int cy) {
+        return ((uint64_t)(uint32_t)cx << 32) | (uint32_t)cy;
+    }
+
+    void insert(int idx, const vector<Point>& poly) {
+        auto [xlo, xhi] = minmax_x(poly);
+        auto [ylo, yhi] = minmax_y(poly);
+        int cxlo = (int)floor(xlo / cell);
+        int cxhi = (int)floor(xhi / cell);
+        int cylo = (int)floor(ylo / cell);
+        int cyhi = (int)floor(yhi / cell);
+        for (int cx = cxlo; cx <= cxhi; cx++)
+            for (int cy = cylo; cy <= cyhi; cy++)
+                cells[key(cx, cy)].push_back(idx);
+    }
+
+    vector<int> query(const vector<Point>& poly) const {
+        auto [xlo, xhi] = minmax_x(poly);
+        auto [ylo, yhi] = minmax_y(poly);
+        int cxlo = (int)floor(xlo / cell);
+        int cxhi = (int)floor(xhi / cell);
+        int cylo = (int)floor(ylo / cell);
+        int cyhi = (int)floor(yhi / cell);
+        vector<int> result;
+        for (int cx = cxlo; cx <= cxhi; cx++) {
+            for (int cy = cylo; cy <= cyhi; cy++) {
+                auto it = cells.find(key(cx, cy));
+                if (it != cells.end())
+                    for (int i : it->second) result.push_back(i);
+            }
+        }
+        return result;
+    }
+};
+
+static SpatialIndex build_spatial_index(
+    const vector<PlacedBay>& sol,
+    const vector<BayType>& types)
+{
+    int min_dim = INT_MAX;
+    for (auto& t : types) min_dim = min(min_dim, min(t.w, t.d));
+    SpatialIndex idx;
+    idx.cell = max(100.0, (double)min_dim / 2.0);
+    for (int i = 0; i < (int)sol.size(); i++) {
+        auto bp = bay_poly(sol[i]);
+        idx.insert(i, bp);
+        auto gp = gap_poly(sol[i]);
+        if (!gp.empty()) idx.insert(i, gp);
+    }
+    return idx;
 }
 
 // ─────────────────────────────────────────────

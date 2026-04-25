@@ -502,7 +502,7 @@ PlacedBay make_candidate(const BayType& t, double x, double y, int angle) {
 }
 
 bool add_bay_custom(
-    vector<PlacedBay>& sol,
+    Solution& sol,
     const vector<BayType>& types,
     const vector<Point>& warehouse,
     const vector<Obstacle>& obstacles,
@@ -514,7 +514,7 @@ bool add_bay_custom(
     bool randomized_repair,
     bool intensify_bias)
 {
-    auto pts = candidate_points(warehouse, obstacles, sol, rng, intensify_bias);
+    auto pts = candidate_points(warehouse, obstacles, sol.bays, rng, intensify_bias);
 
     vector<BayType> sorted_types = types;
     sort(sorted_types.begin(),sorted_types.end(),[](const BayType& a,const BayType& b){
@@ -552,23 +552,26 @@ bool add_bay_custom(
 
             for (int ai=0; ai<alimit; ai++) {
                 int angle=angles[ai];
-                if (valid_candidate(x,y,t.w,t.d,t.h,t.gap,angle,
-                                    sol,warehouse,obstacles,ceiling)) {
-                    auto c=make_candidate(t,x,y,angle);
-                    sol.push_back(c);
-                    double q=quality(sol,wh_area);
-                    sol.pop_back();
-                    if (q<best_q) { best_q=q; best=c; found=true; }
+                if (valid_candidate(x, y, t.w, t.d, t.h, t.gap, angle,
+                                    sol.bays, warehouse, obstacles, ceiling)) {
+                    double dpl   = (double)t.price / max(1, t.loads);
+                    double darea = (double)t.w * t.d;
+                    double q = q_after_add(sol, dpl, darea, wh_area);
+                    if (q < best_q) {
+                        best_q = q;
+                        best   = make_candidate(t, x, y, angle);
+                        found  = true;
+                    }
                 }
             }
         }
     }
-    if (found) { sol.push_back(best); return true; }
+    if (found) { sol.push(best); return true; }
     return false;
 }
 
 bool add_bay(
-    vector<PlacedBay>& sol,
+    Solution& sol,
     const vector<BayType>& types,
     const vector<Point>& warehouse,
     const vector<Obstacle>& obstacles,
@@ -620,14 +623,14 @@ double overlap_tendency_score(
     return score;
 }
 
-void destroy_guided(vector<PlacedBay>& sol, const vector<Obstacle>& obstacles, int k, mt19937& rng) {
+void destroy_guided(Solution& sol, const vector<Obstacle>& obstacles, int k, mt19937& rng) {
     if (sol.empty() || k <= 0) return;
     k = min(k, (int)sol.size());
 
     vector<pair<double,int>> rank;
     rank.reserve(sol.size());
     for (int i = 0; i < (int)sol.size(); i++) {
-        double s = overlap_tendency_score(i, sol, obstacles);
+        double s = overlap_tendency_score(i, sol.bays, obstacles);
         rank.push_back({s, i});
     }
     sort(rank.begin(), rank.end(), [](auto& a, auto& b){ return a.first > b.first; });
@@ -638,16 +641,14 @@ void destroy_guided(vector<PlacedBay>& sol, const vector<Obstacle>& obstacles, i
     for (int i = 0; i < pool; i++) cand_idx.push_back(rank[i].second);
     shuffle(cand_idx.begin(), cand_idx.end(), rng);
 
-    vector<char> del(sol.size(), 0);
-    for (int i = 0; i < k; i++) del[cand_idx[i]] = 1;
-
-    vector<PlacedBay> ns;
-    ns.reserve(sol.size() - k);
-    for (int i = 0; i < (int)sol.size(); i++) if (!del[i]) ns.push_back(sol[i]);
-    sol.swap(ns);
+    vector<int> to_delete;
+    to_delete.reserve(k);
+    for (int i = 0; i < k; i++) to_delete.push_back(cand_idx[i]);
+    sort(to_delete.begin(), to_delete.end(), greater<int>());
+    for (int idx : to_delete) sol.erase_at(idx);
 }
 
-void destroy_random(vector<PlacedBay>& sol, int k, mt19937& rng) {
+void destroy_random(Solution& sol, int k, mt19937& rng) {
     if (sol.empty() || k <= 0) return;
     k = min(k, (int)sol.size());
 
@@ -655,17 +656,15 @@ void destroy_random(vector<PlacedBay>& sol, int k, mt19937& rng) {
     iota(idx.begin(), idx.end(), 0);
     shuffle(idx.begin(), idx.end(), rng);
 
-    vector<char> del(sol.size(), 0);
-    for (int i = 0; i < k; i++) del[idx[i]] = 1;
-
-    vector<PlacedBay> ns;
-    ns.reserve(sol.size() - k);
-    for (int i = 0; i < (int)sol.size(); i++) if (!del[i]) ns.push_back(sol[i]);
-    sol.swap(ns);
+    vector<int> to_delete;
+    to_delete.reserve(k);
+    for (int i = 0; i < k; i++) to_delete.push_back(idx[i]);
+    sort(to_delete.begin(), to_delete.end(), greater<int>());
+    for (int j : to_delete) sol.erase_at(j);
 }
 
 // fixed: worst = highest price/load
-void destroy_worst(vector<PlacedBay>& sol, int k, mt19937& rng) {
+void destroy_worst(Solution& sol, int k, mt19937& rng) {
     if (sol.empty() || k <= 0) return;
     k = min(k, (int)sol.size());
 
@@ -684,13 +683,11 @@ void destroy_worst(vector<PlacedBay>& sol, int k, mt19937& rng) {
     for (int i = 0; i < pool; i++) cand_idx.push_back(rank[i].second);
     shuffle(cand_idx.begin(), cand_idx.end(), rng);
 
-    vector<char> del(sol.size(), 0);
-    for (int i = 0; i < k; i++) del[cand_idx[i]] = 1;
-
-    vector<PlacedBay> ns;
-    ns.reserve(sol.size() - k);
-    for (int i = 0; i < (int)sol.size(); i++) if (!del[i]) ns.push_back(sol[i]);
-    sol.swap(ns);
+    vector<int> to_delete;
+    to_delete.reserve(k);
+    for (int i = 0; i < k; i++) to_delete.push_back(cand_idx[i]);
+    sort(to_delete.begin(), to_delete.end(), greater<int>());
+    for (int idx : to_delete) sol.erase_at(idx);
 }
 
 // ─────────────────────────────────────────────
@@ -698,7 +695,7 @@ void destroy_worst(vector<PlacedBay>& sol, int k, mt19937& rng) {
 // ─────────────────────────────────────────────
 
 void repair_greedy(
-    vector<PlacedBay>& sol,
+    Solution& sol,
     const vector<BayType>& types,
     const vector<Point>& warehouse,
     const vector<Obstacle>& obstacles,
@@ -717,7 +714,7 @@ void repair_greedy(
 }
 
 void repair_randomized(
-    vector<PlacedBay>& sol,
+    Solution& sol,
     const vector<BayType>& types,
     const vector<Point>& warehouse,
     const vector<Obstacle>& obstacles,
@@ -739,8 +736,8 @@ void repair_randomized(
 //  ALNS CORE
 // ─────────────────────────────────────────────
 
-vector<PlacedBay> alns_core(
-    vector<PlacedBay> sol,
+Solution alns_core(
+    Solution sol,
     const vector<BayType>& types,
     const vector<Point>& warehouse,
     const vector<Obstacle>& obstacles,
@@ -757,10 +754,10 @@ vector<PlacedBay> alns_core(
     double alpha,
     bool intensify_bias)
 {
-    vector<PlacedBay> current = sol;
-    double current_q = quality(current, wh_area);
+    Solution current = sol;
+    double current_q = q_now(current, wh_area);
 
-    vector<PlacedBay> best = current;
+    Solution best = current;
     double best_q = current_q;
 
     double T = T0;
@@ -775,7 +772,7 @@ vector<PlacedBay> alns_core(
     const double decay = 0.85;
 
     for (int it = 0; it < iterations; it++) {
-        vector<PlacedBay> cand = current;
+        Solution cand = current;
         int k = Kdist(rng);
 
         discrete_distribution<int> d_dist(destroy_weights.begin(), destroy_weights.end());
@@ -797,7 +794,7 @@ vector<PlacedBay> alns_core(
                               k + repair_extra, rng, max_pts_add, angle_sample, intensify_bias);
         }
 
-        double q = quality(cand, wh_area);
+        double q = q_now(cand, wh_area);
 
         bool accept = false;
         double reward = 0.0;
@@ -836,8 +833,8 @@ vector<PlacedBay> alns_core(
     return best;
 }
 
-vector<PlacedBay> alns(
-    vector<PlacedBay> sol,
+Solution alns(
+    Solution sol,
     const vector<BayType>& types,
     const vector<Point>& warehouse,
     const vector<Obstacle>& obstacles,
@@ -850,8 +847,8 @@ vector<PlacedBay> alns(
                      ANGLE_SAMPLE, MAX_PTS_ADD, LNS_SA_T0, LNS_SA_ALPHA, false);
 }
 
-vector<PlacedBay> intensify(
-    vector<PlacedBay> sol,
+Solution intensify(
+    Solution sol,
     const vector<BayType>& types,
     const vector<Point>& warehouse,
     const vector<Obstacle>& obstacles,
@@ -885,7 +882,7 @@ bool is_valid_solution(
     return true;
 }
 
-vector<PlacedBay> build_initial(
+Solution build_initial(
     const vector<BayType>& types,
     const vector<Point>& warehouse,
     const vector<Obstacle>& obstacles,
@@ -893,9 +890,9 @@ vector<PlacedBay> build_initial(
     double wh_area,
     mt19937& rng)
 {
-    vector<PlacedBay> sol;
-    for (int i=0;i<INITIAL_ADDS;i++)
-        add_bay(sol,types,warehouse,obstacles,ceiling,wh_area,rng);
+    Solution sol;
+    for (int i = 0; i < INITIAL_ADDS; i++)
+        add_bay(sol, types, warehouse, obstacles, ceiling, wh_area, rng);
     return sol;
 }
 
@@ -937,7 +934,7 @@ int main(int argc, char* argv[]) {
     double wh_area = polygon_area(warehouse);
     cout << "Warehouse area: " << wh_area << " mm²\n";
 
-    vector<PlacedBay> best_global;
+    Solution best_global;
     double best_global_q = 1e100;
 
     // Parallel restarts
@@ -945,7 +942,7 @@ int main(int argc, char* argv[]) {
     {
         mt19937 trng = make_rng((unsigned)omp_get_thread_num() + 12345);
 
-        vector<PlacedBay> best_local;
+        Solution best_local;
         double best_local_q = 1e100;
 
         #pragma omp for schedule(dynamic)
@@ -953,8 +950,8 @@ int main(int argc, char* argv[]) {
             auto sol = build_initial(types,warehouse,obstacles,ceiling,wh_area,trng);
             sol = alns(sol,types,warehouse,obstacles,ceiling,wh_area,trng);
 
-            double q = quality(sol,wh_area);
-            bool valid = is_valid_solution(sol,warehouse,obstacles,ceiling);
+            double q = q_now(sol, wh_area);
+            bool valid = is_valid_solution(sol.bays, warehouse, obstacles, ceiling);
 
             #pragma omp critical
             {
@@ -984,8 +981,8 @@ int main(int argc, char* argv[]) {
     if (!best_global.empty()) {
         mt19937 irng = make_rng(999999u);
         auto improved = intensify(best_global, types, warehouse, obstacles, ceiling, wh_area, irng);
-        double q2 = quality(improved, wh_area);
-        bool valid2 = is_valid_solution(improved, warehouse, obstacles, ceiling);
+        double q2 = q_now(improved, wh_area);
+        bool valid2 = is_valid_solution(improved.bays, warehouse, obstacles, ceiling);
 
         cout << "Intensification -> bays=" << improved.size()
              << " Q=" << fixed << setprecision(6) << q2
@@ -997,18 +994,18 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    if (!best_global.empty() && !is_valid_solution(best_global,warehouse,obstacles,ceiling))
+    if (!best_global.empty() && !is_valid_solution(best_global.bays, warehouse, obstacles, ceiling))
         best_global.clear();
 
     ofstream out("solution.csv");
     out << "Id,X,Y,Rotation\n";
-    for (auto& p : best_global)
+    for (auto& p : best_global.bays)
         out << p.id << "," << llround(p.x) << "," << llround(p.y) << "," << p.angle << "\n";
     out.close();
 
     double used_area = 0.0;
     long long total_price = 0, total_loads = 0;
-    compute_metrics(best_global, used_area, total_price, total_loads);
+    compute_metrics(best_global.bays, used_area, total_price, total_loads);
 
     cout << "\nsolution.csv written (" << best_global.size() << " bays)\n";
     cout << "Q = " << fixed << setprecision(6) << best_global_q << "\n";

@@ -505,7 +505,8 @@ bool valid_candidate(
     const vector<Point>& warehouse,
     const vector<Obstacle>& obstacles,
     const vector<pair<double,double>>& ceiling,
-    int ignore = -1)
+    int ignore = -1,
+    const SpatialIndex* sidx = nullptr)
 {
     vector<vector<Point>> polys;
     auto bay = make_rotated_rect(x,y,w,d,angle);
@@ -525,8 +526,26 @@ bool valid_candidate(
 
     auto cand_dir = gap_direction(angle);
 
-    for (int i = 0; i < (int)sol.size(); i++) {
-        if (i == ignore) continue;
+    // gather neighbours via spatial index (fast) or full scan (fallback)
+    vector<int> neighbours;
+    vector<bool> seen(sol.size(), false);
+
+    auto add_neighbour = [&](int i) {
+        if (i == ignore || i < 0 || i >= (int)sol.size()) return;
+        if (seen[i]) return;
+        seen[i] = true;
+        neighbours.push_back(i);
+    };
+
+    if (sidx) {
+        for (int i : sidx->query(bay)) add_neighbour(i);
+        if (!gp.empty())
+            for (int i : sidx->query(gp)) add_neighbour(i);
+    } else {
+        for (int i = 0; i < (int)sol.size(); i++) add_neighbour(i);
+    }
+
+    for (int i : neighbours) {
         const auto& other = sol[i];
 
         auto other_bay_p = bay_poly(other);
@@ -551,9 +570,8 @@ bool valid_candidate(
 
             Point other_dir = gap_direction(other.angle);
             if (!dirs_collinear(cand_dir, other_dir)) {
-                return false; // overlapping gaps not co-linear → reject
+                return false;
             }
-            // co-linear: enforce bay-to-bay axial separation ≥ max(gap_A, gap_B)
             double need = (double) max(gap, other.gap);
             double sep  = axial_gap(bay, other_bay_p, cand_dir);
             if (sep + EPS < need) return false;
@@ -696,6 +714,9 @@ bool add_bay_custom(
         return bay_score(a)>bay_score(b);
     });
 
+    // build spatial index once for the current solution
+    auto sidx = build_spatial_index(sol.bays, types);
+
     PlacedBay best; bool found=false; double best_q=1e100;
     int plimit = min(max_pts_add,(int)pts.size());
 
@@ -728,7 +749,7 @@ bool add_bay_custom(
             for (int ai=0; ai<alimit; ai++) {
                 int angle=angles[ai];
                 if (valid_candidate(x, y, t.w, t.d, t.h, t.gap, angle,
-                                    sol.bays, warehouse, obstacles, ceiling)) {
+                                    sol.bays, warehouse, obstacles, ceiling, -1, &sidx)) {
                     double dprice = t.price;
                     double dloads = t.loads;
                     double darea  = (double)t.w * t.d;
@@ -931,6 +952,8 @@ static bool type_swap_pass(
         PlacedBay cur = sol[idx];
         sol.erase_at(idx);
 
+        auto sidx = build_spatial_index(sol.bays, types);
+
         PlacedBay best = cur;
         double best_q = q_after_add(sol,
             (double)cur.price, (double)cur.loads, (double)cur.w*cur.d, wh_area);
@@ -938,7 +961,7 @@ static bool type_swap_pass(
         for (auto& t : types) {
             if (t.id == cur.id) continue;
             if (!valid_candidate(cur.x, cur.y, t.w, t.d, t.h, t.gap, cur.angle,
-                                 sol.bays, warehouse, obstacles, ceiling)) continue;
+                                 sol.bays, warehouse, obstacles, ceiling, -1, &sidx)) continue;
             double dprice = t.price;
             double dloads = t.loads;
             double darea  = (double)t.w * t.d;

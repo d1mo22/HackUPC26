@@ -1,0 +1,4 @@
+.superpowers/
+.DS_Store
+./api/package.json
+./api/package-lock.json

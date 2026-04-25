@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Box, Layers, Tag } from 'lucide-react'
+import { Box, Download, Layers, Tag } from 'lucide-react'
 
 interface Props {
   isReady: boolean
@@ -8,6 +8,7 @@ interface Props {
   showCeiling: boolean
   showLabels: boolean
   showGaps: boolean
+  solverError: string | null
   onRun: () => void
   onExport: () => void
   onExportPng: () => void
@@ -23,6 +24,7 @@ export default function Controls({
   showCeiling,
   showLabels,
   showGaps,
+  solverError,
   onRun,
   onExport,
   onExportPng,
@@ -97,6 +99,12 @@ export default function Controls({
         {isRunning ? `Running… ${elapsed}s` : 'Run Solver'}
       </button>
 
+      {solverError && (
+        <p role="alert" style={{ fontSize: 11, color: 'var(--color-destructive)', fontFamily: 'var(--font-mono)', lineHeight: 1.4 }}>
+          {solverError}
+        </p>
+      )}
+
       {/* Export buttons */}
       <div style={{ display: 'flex', gap: 6 }}>
         <button
@@ -113,9 +121,10 @@ export default function Controls({
             color: hasSolution ? 'var(--color-muted)' : 'var(--color-border)',
             cursor: hasSolution ? 'pointer' : 'not-allowed',
             transition: 'color 0.15s, border-color 0.15s',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
           }}
         >
-          ↓ CSV
+          <Download size={12} aria-hidden /> CSV
         </button>
         <button
           onClick={onExportPng}
@@ -131,9 +140,10 @@ export default function Controls({
             color: hasSolution ? 'var(--color-muted)' : 'var(--color-border)',
             cursor: hasSolution ? 'pointer' : 'not-allowed',
             transition: 'color 0.15s, border-color 0.15s',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
           }}
         >
-          ↓ PNG
+          <Download size={12} aria-hidden /> PNG
         </button>
       </div>
 
@@ -166,7 +176,7 @@ function Toggle({
         background: 'none',
         border: 'none',
         cursor: 'pointer',
-        padding: '2px 0',
+        padding: '8px 0',
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--color-muted)' }}>

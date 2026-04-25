@@ -16,62 +16,63 @@ interface FileSlotState {
 }
 
 export interface PartialLoad {
-  polygon?:    Point[]
-  obstacles?:  Obstacle[]
-  ceiling?:    CeilingSegment[]
-  bayTypes?:   BayType[]
+  polygon?: Point[]
+  obstacles?: Obstacle[]
+  ceiling?: CeilingSegment[]
+  bayTypes?: BayType[]
 }
 
 interface Props {
-  onCaseLoaded:    (wc: WarehouseCase, files: RawFiles) => void
-  onSolutionLoaded:(s: Solution) => void
-  onPartialLoad:   (data: PartialLoad) => void
-  bayTypes?:       BayType[]
+  onCaseLoaded: (wc: WarehouseCase, files: RawFiles) => void
+  onSolutionLoaded: (s: Solution) => void
+  onPartialLoad: (data: PartialLoad) => void
+  onClear: () => void
+  bayTypes?: BayType[]
 }
 
 export interface RawFiles {
   warehouse: File
   obstacles: File
-  ceiling:   File
-  types:     File
+  ceiling: File
+  types: File
 }
 
 const SLOTS = [
   { key: 'warehouse', label: 'warehouse' },
   { key: 'obstacles', label: 'obstacles' },
-  { key: 'ceiling',   label: 'ceiling'   },
-  { key: 'types',     label: 'types_of_bays' },
+  { key: 'ceiling', label: 'ceiling' },
+  { key: 'types', label: 'types_of_bays' },
 ] as const
 
 type SlotKey = typeof SLOTS[number]['key']
 
 const FILENAME_TO_SLOT: Record<string, SlotKey> = {
-  'warehouse.csv':     'warehouse',
-  'obstacles.csv':     'obstacles',
-  'ceiling.csv':       'ceiling',
+  'warehouse.csv': 'warehouse',
+  'obstacles.csv': 'obstacles',
+  'ceiling.csv': 'ceiling',
   'types_of_bays.csv': 'types',
 }
 
 const PARSERS = {
   warehouse: parseWarehouse,
   obstacles: parseObstacles,
-  ceiling:   parseCeiling,
-  types:     parseBayTypes,
+  ceiling: parseCeiling,
+  types: parseBayTypes,
 }
 
 const ERROR_HINTS: Record<SlotKey, string> = {
   warehouse: 'Expected: x, y',
   obstacles: 'Expected: x, y, w, d',
-  ceiling:   'Expected: x, h',
-  types:     'Expected: id, w, d, h, gap, loads, price',
+  ceiling: 'Expected: x, h',
+  types: 'Expected: id, w, d, h, gap, loads, price',
 }
 
 export default function FileLoader({ onCaseLoaded, onSolutionLoaded, onPartialLoad, onClear, bayTypes }: Props) {
   const [slots, setSlots] = useState<Record<SlotKey, FileSlotState>>({
     warehouse: { file: null, error: null, loading: false },
     obstacles: { file: null, error: null, loading: false },
-    ceiling:   { file: null, error: null, loading: false },
-    types:     { file: null, error: null, loading: false },
+    ceiling: { file: null, error: null, loading: false },
+    types: { file: null, error: null, loading: false },
   })
   const [solutionSlot, setSolutionSlot] = useState<FileSlotState>({ file: null, error: null, loading: false })
   const internalBayTypesRef = useRef<BayType[] | null>(null)
@@ -90,7 +91,7 @@ export default function FileLoader({ onCaseLoaded, onSolutionLoaded, onPartialLo
       // Fire incremental update immediately
       if (key === 'warehouse') onPartialLoad({ polygon: parsed as Point[] })
       if (key === 'obstacles') onPartialLoad({ obstacles: parsed as Obstacle[] })
-      if (key === 'ceiling')   onPartialLoad({ ceiling: parsed as CeilingSegment[] })
+      if (key === 'ceiling') onPartialLoad({ ceiling: parsed as CeilingSegment[] })
       if (key === 'types') {
         internalBayTypesRef.current = parsed as BayType[]
         onPartialLoad({ bayTypes: parsed as BayType[] })
@@ -103,8 +104,8 @@ export default function FileLoader({ onCaseLoaded, onSolutionLoaded, onPartialLo
         const rawFiles = {
           warehouse: loaded.warehouse as File,
           obstacles: loaded.obstacles as File,
-          ceiling:   loaded.ceiling   as File,
-          types:     loaded.types     as File,
+          ceiling: loaded.ceiling as File,
+          types: loaded.types as File,
         }
         const [polygon, obstacleList, ceilingList, bayTypes] = await Promise.all([
           parseWarehouse(rawFiles.warehouse),
@@ -154,8 +155,8 @@ export default function FileLoader({ onCaseLoaded, onSolutionLoaded, onPartialLo
     setSlots({
       warehouse: { file: null, error: null, loading: false },
       obstacles: { file: null, error: null, loading: false },
-      ceiling:   { file: null, error: null, loading: false },
-      types:     { file: null, error: null, loading: false },
+      ceiling: { file: null, error: null, loading: false },
+      types: { file: null, error: null, loading: false },
     })
     setSolutionSlot({ file: null, error: null, loading: false })
     loadedFilesRef.current = {}
@@ -265,18 +266,18 @@ function GridTile({ label, state, onFile }: { label: string; state: FileSlotStat
   const borderColor = hasError
     ? 'var(--color-destructive)'
     : loaded
-    ? 'var(--color-accent)'
-    : dragging
-    ? 'var(--color-accent)'
-    : 'var(--color-border)'
+      ? 'var(--color-accent)'
+      : dragging
+        ? 'var(--color-accent)'
+        : 'var(--color-border)'
 
   const bg = loaded
     ? 'rgba(34,197,94,0.08)'
     : hasError
-    ? 'rgba(239,68,68,0.08)'
-    : dragging
-    ? 'rgba(34,197,94,0.04)'
-    : 'transparent'
+      ? 'rgba(239,68,68,0.08)'
+      : dragging
+        ? 'rgba(34,197,94,0.04)'
+        : 'transparent'
 
   function onDrop(e: React.DragEvent) {
     e.preventDefault()
@@ -311,7 +312,6 @@ function GridTile({ label, state, onFile }: { label: string; state: FileSlotStat
         flexDirection: 'column',
         alignItems: 'center',
         gap: 6,
-        outline: 'none',
       }}
     >
       <input
@@ -327,10 +327,10 @@ function GridTile({ label, state, onFile }: { label: string; state: FileSlotStat
         {state.loading
           ? <Loader2 size={18} className="animate-spin" aria-hidden />
           : loaded
-          ? <Check size={18} aria-hidden />
-          : hasError
-          ? <AlertCircle size={18} aria-hidden />
-          : <Plus size={18} aria-hidden />
+            ? <Check size={18} aria-hidden />
+            : hasError
+              ? <AlertCircle size={18} aria-hidden />
+              : <Plus size={18} aria-hidden />
         }
       </div>
 
@@ -412,8 +412,8 @@ function SolutionSlot({ state, onFile, disabled }: { state: FileSlotState; onFil
         {state.loading
           ? <Loader2 size={13} className="animate-spin" aria-hidden />
           : loaded
-          ? <Check size={13} aria-hidden />
-          : <Plus size={13} aria-hidden />
+            ? <Check size={13} aria-hidden />
+            : <Plus size={13} aria-hidden />
         }
       </div>
     </div>

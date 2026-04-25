@@ -114,7 +114,7 @@ function BayTypesTable({ bayTypes }: { bayTypes: BayType[] }) {
         {bayTypes.map(t => (
           <div key={t.id} style={{
             padding: '8px 10px', borderRadius: 6,
-            background: 'rgba(255,255,255,0.03)', border: '1px solid var(--color-border)',
+            background: 'var(--color-bg)', border: '1px solid var(--color-border)',
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, color: 'var(--color-fg)' }}>

@@ -12,10 +12,10 @@ let nextRunId = 1
 
 export default function App() {
   // Incremental per-layer state — each updates as soon as its file is loaded
-  const [polygon,   setPolygon]   = useState<Point[]          | null>(null)
-  const [obstacles, setObstacles] = useState<Obstacle[]       | null>(null)
-  const [ceiling,   setCeiling]   = useState<CeilingSegment[] | null>(null)
-  const [bayTypes,  setBayTypes]  = useState<BayType[]        | null>(null)
+  const [polygon, setPolygon] = useState<Point[] | null>(null)
+  const [obstacles, setObstacles] = useState<Obstacle[] | null>(null)
+  const [ceiling, setCeiling] = useState<CeilingSegment[] | null>(null)
+  const [bayTypes, setBayTypes] = useState<BayType[] | null>(null)
 
   // Derived full case (only set when all 4 files are loaded — needed for solver)
   const [warehouseCase, setWarehouseCase] = useState<WarehouseCase | null>(null)
@@ -31,6 +31,7 @@ export default function App() {
   const [canvasViewMode, setCanvasViewMode] = useState<'2d' | '3d' | undefined>(undefined)
   const [revealCount, setRevealCount] = useState<number | null>(null)
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
+  const [solverError, setSolverError] = useState<string | null>(null)
   const revealTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const solverStartRef = useRef<number>(0)
 
@@ -61,6 +62,10 @@ export default function App() {
   const canvasElRef = useRef<HTMLCanvasElement | null>(null)
 
   function startRevealAnimation(total: number) {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setRevealCount(null)
+      return
+    }
     if (revealTimerRef.current) clearInterval(revealTimerRef.current)
     setRevealCount(0)
     let count = 0
@@ -79,10 +84,10 @@ export default function App() {
   }
 
   function handlePartialLoad(data: { polygon?: Point[]; obstacles?: Obstacle[]; ceiling?: CeilingSegment[]; bayTypes?: BayType[] }) {
-    if (data.polygon)   setPolygon(data.polygon)
+    if (data.polygon) setPolygon(data.polygon)
     if (data.obstacles) setObstacles(data.obstacles)
-    if (data.ceiling)   setCeiling(data.ceiling)
-    if (data.bayTypes)  setBayTypes(data.bayTypes)
+    if (data.ceiling) setCeiling(data.ceiling)
+    if (data.bayTypes) setBayTypes(data.bayTypes)
   }
 
   function handleCaseLoaded(wc: WarehouseCase, files: RawFiles) {
@@ -107,6 +112,7 @@ export default function App() {
   async function handleRun() {
     if (!rawFiles || !warehouseCase) return
     setIsRunning(true)
+    setSolverError(null)
     solverStartRef.current = Date.now()
     try {
       const formData = new FormData()
@@ -136,6 +142,7 @@ export default function App() {
       setActiveRunId(record.id)
     } catch (err) {
       console.error('Solver failed:', err)
+      setSolverError(err instanceof Error ? err.message : 'Solver failed. Is the server running?')
     } finally {
       setIsRunning(false)
     }
@@ -181,29 +188,29 @@ export default function App() {
         style={{ height: 48, padding: '0 20px', background: 'var(--color-card)', borderBottom: '1px solid var(--color-border)' }}
       >
         <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 15, letterSpacing: '0.05em' }}>
-            Warehouse Optimizer
-          </span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <button
-              onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
-              title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-              style={{
-                background: 'none',
-                border: '1px solid var(--color-border)',
-                borderRadius: 6,
-                color: 'var(--color-muted)',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: 30,
-                height: 30,
-              }}
-            >
-              {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
-            </button>
-            <StatusBadge status={status} />
-          </div>
+          Warehouse Optimizer
+        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button
+            onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
+            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            style={{
+              background: 'none',
+              border: '1px solid var(--color-border)',
+              borderRadius: 6,
+              color: 'var(--color-muted)',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 30,
+              height: 30,
+            }}
+          >
+            {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+          </button>
+          <StatusBadge status={status} />
+        </div>
       </header>
 
       {/* Main 3-column layout */}
@@ -243,6 +250,7 @@ export default function App() {
             showCeiling={showCeiling}
             showLabels={showLabels}
             showGaps={showGaps}
+            solverError={solverError}
             onRun={handleRun}
             onExport={handleExport}
             onExportPng={handleExportPng}

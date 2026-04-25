@@ -85,7 +85,7 @@ export default function HistoryTab({ history, activeRunId, onRestore }: Props) {
                   fontWeight: 600,
                   color: isActive ? 'var(--color-accent)' : 'var(--color-fg)',
                 }}>
-                  Q {record.metrics.q.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  Q {record.metrics.q.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </div>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--color-muted)', marginTop: 2 }}>
                   {record.metrics.bayCount} bays · {record.metrics.coveragePct.toFixed(1)}% · {formatElapsed(record.elapsedMs)}

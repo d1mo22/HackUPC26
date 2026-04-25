@@ -10,12 +10,33 @@ interface Props {
 }
 
 const BAY_COLORS = [
-  '#3B82F6', '#F59E0B', '#EC4899', '#8B5CF6',
-  '#06B6D4', '#F97316', '#84CC16', '#14B8A6',
+  '#3B82F6', // 0  blue
+  '#F59E0B', // 1  amber
+  '#10B981', // 2  emerald
+  '#8B5CF6', // 3  violet
+  '#F97316', // 4  orange
+  '#06B6D4', // 5  cyan
+  '#EC4899', // 6  pink
+  '#84CC16', // 7  lime
+  '#14B8A6', // 8  teal
+  '#A855F7', // 9  purple
+  '#6366F1', // 10 indigo
+  '#D97706', // 11 dark amber
+  '#059669', // 12 dark emerald
+  '#7C3AED', // 13 dark violet
+  '#EA580C', // 14 dark orange
+  '#0891B2', // 15 dark cyan
+  '#DB2777', // 16 dark pink
+  '#65A30D', // 17 dark lime
+  '#0D9488', // 18 dark teal
+  '#7E22CE', // 19 dark purple
 ]
 
 export function getBayColor(typeId: number): string {
-  return BAY_COLORS[typeId % BAY_COLORS.length]
+  if (typeId < BAY_COLORS.length) return BAY_COLORS[typeId]
+  // Golden angle spacing, offset by 40° to avoid red hues (0°/360°)
+  const hue = (40 + typeId * 137.508) % 360
+  return `hsl(${hue.toFixed(0)}, 70%, 55%)`
 }
 
 export default function BayLegend({ solution, warehouseCase, bayTypes: bayTypesProp, selectedTypeIds, onToggleType, onClearFilter }: Props) {

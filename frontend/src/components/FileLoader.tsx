@@ -7,7 +7,7 @@ import {
   parseBayTypes,
   parseSolution,
 } from '../lib/csvParser'
-import type { WarehouseCase, Solution } from '../types'
+import type { BayType, CeilingSegment, Obstacle, Point, WarehouseCase, Solution } from '../types'
 
 interface FileSlotState {
   file: File | null
@@ -15,16 +15,24 @@ interface FileSlotState {
   loading: boolean
 }
 
+export interface PartialLoad {
+  polygon?:    Point[]
+  obstacles?:  Obstacle[]
+  ceiling?:    CeilingSegment[]
+  bayTypes?:   BayType[]
+}
+
 interface Props {
-  onCaseLoaded: (wc: WarehouseCase, files: RawFiles) => void
-  onSolutionLoaded: (s: Solution) => void
+  onCaseLoaded:    (wc: WarehouseCase, files: RawFiles) => void
+  onSolutionLoaded:(s: Solution) => void
+  onPartialLoad:   (data: PartialLoad) => void
 }
 
 export interface RawFiles {
   warehouse: File
   obstacles: File
-  ceiling: File
-  types: File
+  ceiling:   File
+  types:     File
 }
 
 const SLOTS = [
@@ -50,7 +58,7 @@ const ERROR_HINTS: Record<SlotKey, string> = {
   types:     'Expected: id, w, d, h, gap, loads, price',
 }
 
-export default function FileLoader({ onCaseLoaded, onSolutionLoaded }: Props) {
+export default function FileLoader({ onCaseLoaded, onSolutionLoaded, onPartialLoad }: Props) {
   const [slots, setSlots] = useState<Record<SlotKey, FileSlotState>>({
     warehouse: { file: null, error: null, loading: false },
     obstacles: { file: null, error: null, loading: false },
@@ -64,17 +72,24 @@ export default function FileLoader({ onCaseLoaded, onSolutionLoaded }: Props) {
   async function handleFile(key: SlotKey, file: File) {
     setSlots(prev => ({ ...prev, [key]: { file: null, error: null, loading: true } }))
     try {
-      await PARSERS[key](file)
+      const parsed = await PARSERS[key](file)
       const next = { ...slots, [key]: { file, error: null, loading: false } }
       setSlots(next)
 
+      // Fire incremental update immediately
+      if (key === 'warehouse') onPartialLoad({ polygon: parsed as Point[] })
+      if (key === 'obstacles') onPartialLoad({ obstacles: parsed as Obstacle[] })
+      if (key === 'ceiling')   onPartialLoad({ ceiling: parsed as CeilingSegment[] })
+      if (key === 'types')     onPartialLoad({ bayTypes: parsed as BayType[] })
+
+      // Fire full case when all 4 are loaded
       const allDone = SLOTS.every(({ key: k }) => (k === key ? true : next[k].file !== null))
       if (allDone) {
         const rawFiles = {
           warehouse: (next.warehouse.file ?? file) as File,
           obstacles: (next.obstacles.file ?? file) as File,
           ceiling:   (next.ceiling.file ?? file)   as File,
-          types:     (next.types.file ?? file)     as File,
+          types:     (next.types.file ?? file)      as File,
         }
         const [polygon, obstacleList, ceilingList, bayTypes] = await Promise.all([
           parseWarehouse(rawFiles.warehouse),

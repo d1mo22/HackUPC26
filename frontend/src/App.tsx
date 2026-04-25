@@ -1,16 +1,23 @@
 import { useEffect, useRef, useState } from 'react'
-import { Circle, CheckCircle, Loader2, XCircle } from 'lucide-react'
+import { Circle, CheckCircle, Loader2, XCircle, Sun, Moon } from 'lucide-react'
 import FileLoader, { type RawFiles } from './components/FileLoader'
 import RightPanel from './components/RightPanel'
 import Controls from './components/Controls'
 import Canvas from './components/Canvas'
 import { computeMetrics } from './lib/scoring'
 import { parseSolution } from './lib/csvParser'
-import type { RunRecord, WarehouseCase, Solution } from './types'
+import type { BayType, CeilingSegment, Obstacle, Point, RunRecord, WarehouseCase, Solution } from './types'
 
 let nextRunId = 1
 
 export default function App() {
+  // Incremental per-layer state — each updates as soon as its file is loaded
+  const [polygon,   setPolygon]   = useState<Point[]          | null>(null)
+  const [obstacles, setObstacles] = useState<Obstacle[]       | null>(null)
+  const [ceiling,   setCeiling]   = useState<CeilingSegment[] | null>(null)
+  const [bayTypes,  setBayTypes]  = useState<BayType[]        | null>(null)
+
+  // Derived full case (only set when all 4 files are loaded — needed for solver)
   const [warehouseCase, setWarehouseCase] = useState<WarehouseCase | null>(null)
   const [rawFiles, setRawFiles] = useState<RawFiles | null>(null)
   const [solution, setSolution] = useState<Solution | null>(null)
@@ -23,8 +30,14 @@ export default function App() {
   const [selectedTypeIds, setSelectedTypeIds] = useState<Set<number>>(new Set())
   const [canvasViewMode, setCanvasViewMode] = useState<'2d' | '3d' | undefined>(undefined)
   const [revealCount, setRevealCount] = useState<number | null>(null)
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark')
   const revealTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const solverStartRef = useRef<number>(0)
+
+  // Apply theme to <html>
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+  }, [theme])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -65,7 +78,18 @@ export default function App() {
     }, intervalMs)
   }
 
+  function handlePartialLoad(data: { polygon?: Point[]; obstacles?: Obstacle[]; ceiling?: CeilingSegment[]; bayTypes?: BayType[] }) {
+    if (data.polygon)   setPolygon(data.polygon)
+    if (data.obstacles) setObstacles(data.obstacles)
+    if (data.ceiling)   setCeiling(data.ceiling)
+    if (data.bayTypes)  setBayTypes(data.bayTypes)
+  }
+
   function handleCaseLoaded(wc: WarehouseCase, files: RawFiles) {
+    setPolygon(wc.polygon)
+    setObstacles(wc.obstacles)
+    setCeiling(wc.ceiling)
+    setBayTypes(wc.bayTypes)
     setWarehouseCase(wc)
     setRawFiles(files)
     setSolution(null)
@@ -146,7 +170,7 @@ export default function App() {
   }
 
   const status: 'idle' | 'ready' | 'running' | 'error' =
-    isRunning ? 'running' : warehouseCase ? 'ready' : 'idle'
+    isRunning ? 'running' : warehouseCase ? 'ready' : polygon ? 'ready' : 'idle'
 
   return (
     <div className="flex flex-col w-screen h-screen overflow-hidden" style={{ background: 'var(--color-bg)', color: 'var(--color-fg)' }}>
@@ -157,9 +181,29 @@ export default function App() {
         style={{ height: 48, padding: '0 20px', background: 'var(--color-card)', borderBottom: '1px solid var(--color-border)' }}
       >
         <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 15, letterSpacing: '0.05em' }}>
-          Warehouse Optimizer
-        </span>
-        <StatusBadge status={status} />
+            Warehouse Optimizer
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <button
+              onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
+              title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              style={{
+                background: 'none',
+                border: '1px solid var(--color-border)',
+                borderRadius: 6,
+                color: 'var(--color-muted)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 30,
+                height: 30,
+              }}
+            >
+              {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+            </button>
+            <StatusBadge status={status} />
+          </div>
       </header>
 
       {/* Main 3-column layout */}
@@ -174,6 +218,7 @@ export default function App() {
             <FileLoader
               onCaseLoaded={handleCaseLoaded}
               onSolutionLoaded={(s) => { setSolution(s); startRevealAnimation(s.placements.length) }}
+              onPartialLoad={handlePartialLoad}
             />
           </div>
 
@@ -199,10 +244,10 @@ export default function App() {
           style={{ background: 'var(--color-bg)' }}
         >
           <Canvas
-            polygon={warehouseCase?.polygon ?? null}
-            obstacles={warehouseCase?.obstacles ?? null}
-            ceiling={warehouseCase?.ceiling ?? null}
-            bayTypes={warehouseCase?.bayTypes ?? null}
+            polygon={polygon}
+            obstacles={obstacles}
+            ceiling={ceiling}
+            bayTypes={bayTypes}
             placements={revealCount !== null && solution ? solution.placements.slice(0, revealCount) : (solution?.placements ?? null)}
             showGaps={showGaps}
             showCeiling={showCeiling}
@@ -223,6 +268,7 @@ export default function App() {
           <RightPanel
             solution={solution}
             warehouseCase={warehouseCase}
+            bayTypes={bayTypes}
             runHistory={runHistory}
             activeRunId={activeRunId}
             onRestore={handleRestore}

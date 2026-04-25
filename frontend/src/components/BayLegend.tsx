@@ -1,8 +1,9 @@
-import type { Solution, WarehouseCase } from '../types'
+import type { BayType, Solution, WarehouseCase } from '../types'
 
 interface Props {
   solution: Solution | null
   warehouseCase: WarehouseCase | null
+  bayTypes: BayType[] | null
   selectedTypeIds: Set<number>
   onToggleType: (id: number) => void
   onClearFilter: () => void
@@ -17,13 +18,20 @@ export function getBayColor(typeId: number): string {
   return BAY_COLORS[typeId % BAY_COLORS.length]
 }
 
-export default function BayLegend({ solution, warehouseCase, selectedTypeIds, onToggleType, onClearFilter }: Props) {
-  if (!solution || !warehouseCase) return null
+export default function BayLegend({ solution, warehouseCase, bayTypes: bayTypesProp, selectedTypeIds, onToggleType, onClearFilter }: Props) {
+  // Use solution-based types if available, otherwise fall back to loaded bay types
+  const allBayTypes = warehouseCase?.bayTypes ?? bayTypesProp
+  if (!allBayTypes) return null
 
-  const typeMap = new Map(warehouseCase.bayTypes.map(t => [t.id, t]))
-  const usedTypeIds = [...new Set(solution.placements.map(p => p.id))].sort((a, b) => a - b)
+  const typeMap = new Map(allBayTypes.map(t => [t.id, t]))
   const counts = new Map<number, number>()
-  for (const p of solution.placements) counts.set(p.id, (counts.get(p.id) ?? 0) + 1)
+  if (solution) {
+    for (const p of solution.placements) counts.set(p.id, (counts.get(p.id) ?? 0) + 1)
+  }
+  // Show types used in solution, or all known types if no solution yet
+  const usedTypeIds = solution
+    ? [...new Set(solution.placements.map(p => p.id))].sort((a, b) => a - b)
+    : allBayTypes.map(t => t.id).sort((a, b) => a - b)
 
   const hasFilter = selectedTypeIds.size > 0
 
@@ -64,7 +72,6 @@ export default function BayLegend({ solution, warehouseCase, selectedTypeIds, on
           const type = typeMap.get(id)
           if (!type) return null
           const color = getBayColor(id)
-          const count = counts.get(id) ?? 0
           const active = selectedTypeIds.has(id)
           const dimmed = hasFilter && !active
 
@@ -103,7 +110,7 @@ export default function BayLegend({ solution, warehouseCase, selectedTypeIds, on
                     Type {id}
                   </span>
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: color, fontWeight: 600 }}>
-                    ×{count}
+                    {solution ? `×${counts.get(id) ?? 0}` : `${type.w}×${type.d}`}
                   </span>
                 </div>
                 <div style={{ display: 'flex', gap: 8, marginTop: 3 }}>

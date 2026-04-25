@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { Canvas, useThree } from '@react-three/fiber'
 import { OrbitControls, Line, Text } from '@react-three/drei'
 import * as THREE from 'three'
+import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { getBayColor } from './BayLegend'
 import { bayDimensions, polygonBounds } from '../lib/geometry'
 import type { Point, Obstacle, CeilingSegment, BayType, PlacedBay } from '../types'
@@ -18,17 +19,27 @@ function hexToThree(hex: string): THREE.Color {
 
 // Warehouse floor as a filled polygon
 function Floor({ polygon }: { polygon: Point[] }) {
-  const shape = new THREE.Shape()
-  shape.moveTo(polygon[0].x * S, -polygon[0].y * S)
-  for (let i = 1; i < polygon.length; i++) {
-    shape.lineTo(polygon[i].x * S, -polygon[i].y * S)
+  // Build a flat BufferGeometry directly in world XZ at y=−0.001 — no rotation/offset tricks
+  const verts: number[] = []
+  for (const p of polygon) {
+    verts.push(p.x * S, -0.003, -p.y * S)
   }
-  shape.closePath()
-  const pts = [...polygon, polygon[0]].map(p => new THREE.Vector3(p.x * S, 0.001, -p.y * S))
+  // Fan triangulation from vertex 0; duplicate with reversed winding for DoubleSide
+  const indices: number[] = []
+  for (let i = 1; i < polygon.length - 1; i++) {
+    indices.push(0, i, i + 1)
+    indices.push(0, i + 1, i)
+  }
+  const geo = new THREE.BufferGeometry()
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(verts), 3))
+  geo.setIndex(indices)
+  geo.computeVertexNormals()
+
+  const pts = [...polygon, polygon[0]].map(p => new THREE.Vector3(p.x * S, 0, -p.y * S))
+
   return (
     <group>
-      <mesh rotation={[-Math.PI / 2, 0, 0]}>
-        <shapeGeometry args={[shape]} />
+      <mesh geometry={geo}>
         <meshStandardMaterial color="#08111f" side={THREE.DoubleSide} />
       </mesh>
       <Line points={pts} color="#334155" lineWidth={1.5} />
@@ -36,9 +47,20 @@ function Floor({ polygon }: { polygon: Point[] }) {
   )
 }
 
-// Obstacle boxes — solid red with edge outlines
-function ObstacleBox({ obs, maxCeilH }: { obs: Obstacle; maxCeilH: number }) {
-  const bh = maxCeilH * 0.5 * S
+// Obstacle boxes — solid red with edge outlines, full height to ceiling
+function ObstacleBox({ obs, ceiling, maxCeilH }: { obs: Obstacle; ceiling: CeilingSegment[]; maxCeilH: number }) {
+  // Find the minimum ceiling height over this obstacle's X range
+  let ceilH = maxCeilH
+  if (ceiling.length > 0) {
+    const sorted = [...ceiling].sort((a, b) => a.x - b.x)
+    for (let i = 0; i < sorted.length; i++) {
+      const nextX = i + 1 < sorted.length ? sorted[i + 1].x : Infinity
+      if (sorted[i].x <= obs.x + obs.w && nextX > obs.x) {
+        ceilH = Math.min(ceilH, sorted[i].h)
+      }
+    }
+  }
+  const bh = ceilH * S
   const cx = (obs.x + obs.w / 2) * S
   const cy = bh / 2
   const cz = -(obs.y + obs.d / 2) * S
@@ -56,11 +78,12 @@ function ObstacleBox({ obs, maxCeilH }: { obs: Obstacle; maxCeilH: number }) {
         <lineBasicMaterial color="#000000" />
       </lineSegments>
       <Text
-        position={[0, bh / 2 + 0.02, 0]}
+        position={[0, bh / 2 + 0.01, 0]}
+        rotation={[-Math.PI / 2, 0, 0]}
         fontSize={0.06}
         color="white"
         anchorX="center"
-        anchorY="bottom"
+        anchorY="middle"
         font={undefined}
       >
         OBS
@@ -84,7 +107,7 @@ function BayBox({ p, type, showLabels, showGaps }: { p: PlacedBay; type: BayType
   return (
     <group>
       <group position={[cx, cy, cz]}>
-        <mesh castShadow>
+        <mesh>
           <boxGeometry args={[bw, bh, bd]} />
           <meshStandardMaterial color={color} />
         </mesh>
@@ -95,10 +118,11 @@ function BayBox({ p, type, showLabels, showGaps }: { p: PlacedBay; type: BayType
         {showLabels && (
           <Text
             position={[0, bh / 2 + 0.01, 0]}
-            fontSize={0.05}
+            rotation={[-Math.PI / 2, 0, 0]}
+            fontSize={0.20}
             color="rgba(255,255,255,0.92)"
             anchorX="center"
-            anchorY="bottom"
+            anchorY="middle"
             font={undefined}
           >
             {String(p.id)}
@@ -115,7 +139,7 @@ function BayBox({ p, type, showLabels, showGaps }: { p: PlacedBay; type: BayType
         return (
           <mesh position={[gapX, 0.002, gapZ]} rotation={[-Math.PI / 2, 0, 0]}>
             <planeGeometry args={[gapW, gapD]} />
-            <meshStandardMaterial color={getBayColor(p.id)} opacity={0.12} transparent side={THREE.DoubleSide} />
+            <meshStandardMaterial color={getBayColor(p.id)} opacity={0.12} transparent />
           </mesh>
         )
       })()}
@@ -158,7 +182,7 @@ function CeilingPlanes({ ceiling, polygon }: { ceiling: CeilingSegment[]; polygo
           <group key={i}>
             <mesh position={[cx, cy, cz]} rotation={[-Math.PI / 2, 0, 0]}>
               <planeGeometry args={[w, d]} />
-              <meshStandardMaterial color={color} opacity={0.07} transparent side={THREE.DoubleSide} />
+              <meshStandardMaterial color={color} opacity={0.07} transparent />
             </mesh>
             <Line points={corners} color={color} lineWidth={1} dashed dashSize={0.05} gapSize={0.03} />
           </group>
@@ -168,9 +192,9 @@ function CeilingPlanes({ ceiling, polygon }: { ceiling: CeilingSegment[]; polygo
   )
 }
 
-// Auto-position camera to fit warehouse
+// Auto-position camera to fit warehouse, pivot OrbitControls at warehouse centre
 function AutoCamera({ polygon }: { polygon: Point[] }) {
-  const { camera } = useThree()
+  const { camera, controls } = useThree()
   const fitted = useRef(false)
 
   useEffect(() => { fitted.current = false }, [polygon])
@@ -181,11 +205,17 @@ function AutoCamera({ polygon }: { polygon: Point[] }) {
     const cx = ((bounds.minX + bounds.maxX) / 2) * S
     const cz = -((bounds.minY + bounds.maxY) / 2) * S
     const span = Math.max(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY) * S
+    const target = new THREE.Vector3(cx, 0, cz)
     camera.position.set(cx + span * 0.8, span * 0.9, cz + span * 0.8)
-    camera.lookAt(cx, 0, cz)
+    camera.lookAt(target)
     camera.updateProjectionMatrix()
+    // Set OrbitControls target so rotation pivots at the warehouse centre
+    if (controls) {
+      (controls as unknown as OrbitControlsImpl).target.copy(target);
+      (controls as unknown as OrbitControlsImpl).update()
+    }
     fitted.current = true
-  }, [polygon, camera])
+  }, [polygon, camera, controls])
 
   return null
 }
@@ -221,7 +251,7 @@ export default function Canvas3D({
       gl={{ antialias: true }}
     >
       <ambientLight intensity={1.4} />
-      <directionalLight position={[5, 10, 5]} intensity={0.6} castShadow />
+      <directionalLight position={[5, 10, 5]} intensity={0.6} />
 
       <AutoCamera polygon={polygon} />
       <OrbitControls makeDefault enableDamping dampingFactor={0.08} />
@@ -229,7 +259,7 @@ export default function Canvas3D({
       <Floor polygon={polygon} />
 
       {obstacles.map((obs, i) => (
-        <ObstacleBox key={i} obs={obs} maxCeilH={maxCeilH} />
+        <ObstacleBox key={i} obs={obs} ceiling={ceiling} maxCeilH={maxCeilH} />
       ))}
 
       {visiblePlacements.map((p, i) => {

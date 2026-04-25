@@ -22,7 +22,7 @@ function Floor({ polygon }: { polygon: Point[] }) {
   // Build a flat BufferGeometry directly in world XZ at y=−0.001 — no rotation/offset tricks
   const verts: number[] = []
   for (const p of polygon) {
-    verts.push(p.x * S, -0.003, -p.y * S)
+    verts.push(p.x * S, -0.05, -p.y * S)
   }
   // Fan triangulation from vertex 0; duplicate with reversed winding for DoubleSide
   const indices: number[] = []
@@ -132,10 +132,25 @@ function BayBox({ p, type, showLabels, showGaps }: { p: PlacedBay; type: BayType
 
       {/* Gap zone — semi-transparent plane on the floor */}
       {showGaps && type.gap > 0 && (() => {
-        const gapW = p.rotation === 0 ? dims.w * S : type.gap * S
-        const gapD = p.rotation === 0 ? type.gap * S : dims.d * S
-        const gapX = p.rotation === 0 ? cx : (p.x + dims.w + type.gap / 2) * S
-        const gapZ = p.rotation === 0 ? -(p.y + dims.d + type.gap / 2) * S : cz
+        const g = type.gap * S
+        let gapX: number, gapZ: number, gapW: number, gapD: number
+        if (p.rotation === 0) {
+          // gap above (+Y world = +Z in three.js -)
+          gapW = dims.w * S; gapD = g
+          gapX = cx; gapZ = -(p.y + dims.d + type.gap / 2) * S
+        } else if (p.rotation === 90) {
+          // gap to the left (-X)
+          gapW = g; gapD = dims.d * S
+          gapX = (p.x - type.gap / 2) * S; gapZ = cz
+        } else if (p.rotation === 180) {
+          // gap below (-Y world = less negative Z)
+          gapW = dims.w * S; gapD = g
+          gapX = cx; gapZ = -(p.y - type.gap / 2) * S
+        } else {
+          // rotation === 270: gap to the right (+X)
+          gapW = g; gapD = dims.d * S
+          gapX = (p.x + dims.w + type.gap / 2) * S; gapZ = cz
+        }
         return (
           <mesh position={[gapX, 0.002, gapZ]} rotation={[-Math.PI / 2, 0, 0]}>
             <planeGeometry args={[gapW, gapD]} />
@@ -162,7 +177,7 @@ function CeilingPlanes({ ceiling, polygon }: { ceiling: CeilingSegment[]; polygo
         const nextX = i + 1 < sorted.length ? sorted[i + 1].x : bounds.maxX
         const w = (nextX - seg.x) * S
         const cx = (seg.x + (nextX - seg.x) / 2) * S
-        const cy = seg.h * S
+        const cy = seg.h * S + 0.01
         const cz = -(minY + (maxY - minY) / 2) * S
         const d = (maxY - minY) * S
         const color = seg.h >= maxH ? '#22c55e' : seg.h <= minH ? '#ef4444' : '#eab308'

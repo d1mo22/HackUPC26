@@ -119,7 +119,7 @@ export default function App() {
       const text = await res.text()
       const blob = new Blob([text], { type: 'text/csv' })
       const file = new File([blob], 'solution.csv')
-      const placements = await parseSolution(file)
+      const placements = await parseSolution(file, warehouseCase.bayTypes)
       const sol: Solution = { placements }
       const elapsedMs = Date.now() - solverStartRef.current
       const metrics = computeMetrics(placements, warehouseCase.bayTypes, warehouseCase.polygon)
@@ -219,6 +219,7 @@ export default function App() {
               onCaseLoaded={handleCaseLoaded}
               onSolutionLoaded={(s) => { setSolution(s); startRevealAnimation(s.placements.length) }}
               onPartialLoad={handlePartialLoad}
+              bayTypes={bayTypes ?? undefined}
             />
           </div>
 

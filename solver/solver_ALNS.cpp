@@ -47,6 +47,32 @@ const int INTENSIFY_MAX_PTS_ADD = 100;
 const double INTENSIFY_T0 = 0.01;
 const double INTENSIFY_ALPHA = 0.998;
 
+const double WALL_BUDGET_SECONDS = 25.0;     // ALNS phase budget
+const double INTENSIFY_BUDGET_SECONDS = 3.5; // intensification budget
+
+// ─────────────────────────────────────────────
+//  TIME BUDGET
+// ─────────────────────────────────────────────
+
+struct Deadline {
+    chrono::steady_clock::time_point t_end;
+
+    bool expired() const {
+        return chrono::steady_clock::now() >= t_end;
+    }
+
+    double remaining_seconds() const {
+        auto d = t_end - chrono::steady_clock::now();
+        return chrono::duration<double>(d).count();
+    }
+};
+
+static inline Deadline make_deadline(double seconds) {
+    return Deadline{ chrono::steady_clock::now()
+                     + chrono::duration_cast<chrono::steady_clock::duration>(
+                           chrono::duration<double>(seconds)) };
+}
+
 // ─────────────────────────────────────────────
 //  RNG helper
 // ─────────────────────────────────────────────

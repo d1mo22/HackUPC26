@@ -977,6 +977,48 @@ static bool type_swap_pass(
     return improved;
 }
 
+static bool rotate_perturb_pass(
+    Solution& sol,
+    const vector<Point>& warehouse,
+    const vector<Obstacle>& obstacles,
+    const vector<pair<double,double>>& ceiling,
+    double wh_area,
+    mt19937& rng,
+    const vector<BayType>& types)
+{
+    if (sol.empty()) return false;
+    bool improved = false;
+
+    const vector<int> DELTAS = {10, -10, 20, -20, 90, -90, 180};
+
+    vector<int> order(sol.size());
+    iota(order.begin(), order.end(), 0);
+    shuffle(order.begin(), order.end(), rng);
+
+    for (int idx : order) {
+        PlacedBay cur = sol[idx];
+        sol.erase_at(idx);
+
+        auto sidx = build_spatial_index(sol.bays, types);
+
+        PlacedBay best = cur;
+
+        for (int delta : DELTAS) {
+            int new_angle = ((cur.angle + delta) % 360 + 360) % 360;
+            if (!valid_candidate(cur.x, cur.y, cur.w, cur.d, cur.h, cur.gap,
+                                 new_angle, sol.bays, warehouse, obstacles, ceiling,
+                                 -1, &sidx)) continue;
+            // Q is angle-invariant (price/loads/area unchanged) — accept first valid perturbation
+            best.angle = new_angle;
+            improved = true;
+            break;
+        }
+
+        sol.push(best);
+    }
+    return improved;
+}
+
 // ─────────────────────────────────────────────
 //  ALNS CORE
 // ─────────────────────────────────────────────
@@ -1012,8 +1054,8 @@ Solution alns_core(
 
     // destroy weights: guided, random, worst
     vector<double> destroy_weights = {10.0, 10.0, 10.0};
-    // repair weights: greedy, randomized, type_swap
-    vector<double> repair_weights = {10.0, 10.0, 5.0};
+    // repair weights: greedy, randomized, type_swap, rotate_perturb
+    vector<double> repair_weights = {10.0, 10.0, 5.0, 3.0};
 
     const double decay = 0.85;
 
@@ -1039,11 +1081,16 @@ Solution alns_core(
         } else if (r_idx == 1) {
             repair_randomized(cand, types, warehouse, obstacles, ceiling, wh_area,
                               k + repair_extra, rng, max_pts_add, angle_sample, intensify_bias, interior_grid);
-        } else {
+        } else if (r_idx == 2) {
             // type_swap: first greedily restore destroyed bays, then swap types
             repair_greedy(cand, types, warehouse, obstacles, ceiling, wh_area,
                           k + repair_extra, rng, max_pts_add, angle_sample, intensify_bias, interior_grid);
             type_swap_pass(cand, types, warehouse, obstacles, ceiling, wh_area, rng);
+        } else {
+            // rotate_perturb: first greedily restore destroyed bays, then perturb angles
+            repair_greedy(cand, types, warehouse, obstacles, ceiling, wh_area,
+                          k + repair_extra, rng, max_pts_add, angle_sample, intensify_bias, interior_grid);
+            rotate_perturb_pass(cand, warehouse, obstacles, ceiling, wh_area, rng, types);
         }
 
         double q = q_now(cand, wh_area);

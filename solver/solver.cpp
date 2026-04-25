@@ -9,14 +9,16 @@
 #include <string>
 #include <future>
 #include <array>
+#include <chrono>
 
 using namespace std;
+using Clock = chrono::steady_clock;
 
 const vector<string> CASES = {"Case0", "Case1", "Case2", "Case3"};
 
 const int ITERATIONS = 450;
 const int INITIAL_ADDS = 80;
-const int RESTARTS = 8;
+const int RESTARTS = 10;
 const int MAX_POINTS_ADD = 80;
 const int ANGLE_SAMPLE = 14;
 
@@ -24,6 +26,10 @@ const double EPS = 1e-7;
 const double PI = acos(-1.0);
 
 thread_local mt19937 rng(42);
+
+double seconds_since(Clock::time_point start) {
+    return chrono::duration<double>(Clock::now() - start).count();
+}
 
 enum InitMode {
     CHEAP_LOAD = 0,
@@ -1068,6 +1074,8 @@ void print_operator_stats(const string& case_dir, const OperatorStats& stats) {
 }
 
 void solve_case(const string& case_dir) {
+    auto case_start = Clock::now();
+
     cout << "\n=== Solving " << case_dir << " ===\n";
 
     auto warehouse = read_warehouse(case_dir + "/warehouse.csv");
@@ -1167,9 +1175,12 @@ void solve_case(const string& case_dir) {
     print_operator_stats(case_dir, total_stats);
 
     cout << "Written: " << out_path << "\n";
+    cout << "[time] " << case_dir << " elapsed=" << seconds_since(case_start) << "s\n";
 }
 
 int main() {
+    auto total_start = Clock::now();
+
     for (auto& c : CASES) {
         ifstream f(c + "/warehouse.csv");
 
@@ -1179,6 +1190,8 @@ int main() {
             cout << "Skipping " << c << "\n";
         }
     }
+
+    cout << "\n[time] total elapsed=" << seconds_since(total_start) << "s\n";
 
     return 0;
 }

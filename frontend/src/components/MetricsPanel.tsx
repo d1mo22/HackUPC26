@@ -112,7 +112,7 @@ function QFormulaTooltip() {
           pointerEvents: 'none', lineHeight: 1.6,
         }}>
           <div style={{ marginBottom: 8, color: 'var(--color-muted)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Formula</div>
-          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Q = (Σ price/loads)<sup style={{ fontSize: 9 }}>exp</sup></div>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Q = (Σ price/ Σ loads)<sup style={{ fontSize: 9 }}>exp</sup></div>
           <div style={{ color: 'var(--color-muted)', fontSize: 10, marginBottom: 4 }}>exp = 2 − area_bays / area_warehouse</div>
           <div style={{ color: '#22c55e', fontSize: 10 }}>Lower Q is better</div>
         </div>

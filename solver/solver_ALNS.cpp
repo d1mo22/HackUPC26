@@ -103,6 +103,50 @@ struct PlacedBay {
 
 struct Obstacle { double x, y, w, d; };
 
+struct Solution {
+    vector<PlacedBay> bays;
+    double sum_pl = 0.0;   // Σ price / max(1, loads)
+    double area  = 0.0;    // Σ w * d
+
+    void push(const PlacedBay& p) {
+        bays.push_back(p);
+        sum_pl += (double)p.price / max(1, p.loads);
+        area   += (double)p.w * p.d;
+    }
+
+    void pop() {
+        const auto& p = bays.back();
+        sum_pl -= (double)p.price / max(1, p.loads);
+        area   -= (double)p.w * p.d;
+        bays.pop_back();
+    }
+
+    void erase_at(int i) {
+        const auto& p = bays[i];
+        sum_pl -= (double)p.price / max(1, p.loads);
+        area   -= (double)p.w * p.d;
+        bays.erase(bays.begin() + i);
+    }
+
+    void clear() { bays.clear(); sum_pl = 0.0; area = 0.0; }
+    int size() const { return (int)bays.size(); }
+    bool empty() const { return bays.empty(); }
+    PlacedBay&       operator[](int i)       { return bays[i]; }
+    const PlacedBay& operator[](int i) const { return bays[i]; }
+};
+
+static inline double q_after_add(const Solution& s, double dpl, double darea, double wh_area) {
+    double pl   = s.sum_pl + dpl;
+    double area = s.area   + darea;
+    if (pl <= 0.0) return 1e100;
+    return pow(pl, 2.0 - area / wh_area);
+}
+
+static inline double q_now(const Solution& s, double wh_area) {
+    if (s.bays.empty()) return 1e100;
+    return pow(s.sum_pl, 2.0 - s.area / wh_area);
+}
+
 // ─────────────────────────────────────────────
 //  GEOMETRY
 // ─────────────────────────────────────────────
@@ -402,6 +446,10 @@ double quality(const vector<PlacedBay>& sol, double wh_area) {
         area += (double)p.w * p.d;
     }
     return pow(pl, 2.0 - area/wh_area);
+}
+
+double quality(const Solution& s, double wh_area) {
+    return q_now(s, wh_area);
 }
 
 double bay_score(const BayType& t) {

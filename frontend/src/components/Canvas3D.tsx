@@ -116,10 +116,12 @@ function BayBox({ p, type, showLabels, showGaps }: { p: PlacedBay; type: BayType
             position={[0, bh / 2 + 0.01, 0]}
             rotation={[-Math.PI / 2, 0, 0]}
             fontSize={0.20}
-            color="rgba(255,255,255,0.92)"
+            color="white"
             anchorX="center"
             anchorY="middle"
             font={undefined}
+            renderOrder={999}
+            material-depthTest={false}
           >
             {String(p.id)}
           </Text>

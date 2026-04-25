@@ -21,6 +21,7 @@ const int INITIAL_ADDS = 80;
 const int RESTARTS = 10;
 const int MAX_POINTS_ADD = 80;
 const int ANGLE_SAMPLE = 14;
+const double WALL_BUDGET = 70.0;  // seconds — leave margin for the 120s server timeout
 
 const double EPS = 1e-7;
 const double PI = acos(-1.0);
@@ -1013,12 +1014,14 @@ vector<PlacedBay> hill(
     const vector<pair<double, double>>& ceiling,
     double wh_area,
     int mode,
-    OperatorStats& stats
+    OperatorStats& stats,
+    Clock::time_point deadline
 ) {
     vector<PlacedBay> best = sol;
     double best_q = quality(best, wh_area);
 
     for (int it = 0; it < ITERATIONS; it++) {
+        if (Clock::now() >= deadline) break;
         vector<PlacedBay> candidate = best;
 
         const vector<int> active_ops = {3, 4, 5};
@@ -1075,6 +1078,8 @@ void print_operator_stats(const string& case_dir, const OperatorStats& stats) {
 
 void solve_case(const string& case_dir) {
     auto case_start = Clock::now();
+    auto deadline = case_start + chrono::duration_cast<chrono::steady_clock::duration>(
+        chrono::duration<double>(WALL_BUDGET));
 
     cout << "\n=== Solving " << case_dir << " ===\n";
 
@@ -1097,7 +1102,7 @@ void solve_case(const string& case_dir) {
 
         OperatorStats stats;
 
-        sol = hill(sol, types, warehouse, obstacles, ceiling, wh_area, mode, stats);
+        sol = hill(sol, types, warehouse, obstacles, ceiling, wh_area, mode, stats, deadline);
 
         auto [af, lf, pf, qf] = details(sol, wh_area);
 

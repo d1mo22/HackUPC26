@@ -53,7 +53,7 @@ app.post(
       writeFileSync(join(tmpDir, 'ceiling.csv'),       files.ceiling[0].buffer)
       writeFileSync(join(tmpDir, 'types_of_bays.csv'), files.types[0].buffer)
 
-      execFile(SOLVER_BIN, [tmpDir], { timeout: 35_000 }, (err, stdout, stderr) => {
+      execFile(SOLVER_BIN, [tmpDir], { timeout: 120_000 }, (err, stdout, stderr) => {
         console.log(stdout)
         if (stderr) console.error(stderr)
 

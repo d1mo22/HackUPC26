@@ -31,6 +31,7 @@ export default function App() {
   const [canvasViewMode, setCanvasViewMode] = useState<'2d' | '3d' | undefined>(undefined)
   const [revealCount, setRevealCount] = useState<number | null>(null)
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
+  const [solverError, setSolverError] = useState<string | null>(null)
   const revealTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const solverStartRef = useRef<number>(0)
 
@@ -61,6 +62,10 @@ export default function App() {
   const canvasElRef = useRef<HTMLCanvasElement | null>(null)
 
   function startRevealAnimation(total: number) {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setRevealCount(null)
+      return
+    }
     if (revealTimerRef.current) clearInterval(revealTimerRef.current)
     setRevealCount(0)
     let count = 0
@@ -107,6 +112,7 @@ export default function App() {
   async function handleRun() {
     if (!rawFiles || !warehouseCase) return
     setIsRunning(true)
+    setSolverError(null)
     solverStartRef.current = Date.now()
     try {
       const formData = new FormData()
@@ -136,6 +142,7 @@ export default function App() {
       setActiveRunId(record.id)
     } catch (err) {
       console.error('Solver failed:', err)
+      setSolverError(err instanceof Error ? err.message : 'Solver failed. Is the server running?')
     } finally {
       setIsRunning(false)
     }
@@ -242,6 +249,7 @@ export default function App() {
             showCeiling={showCeiling}
             showLabels={showLabels}
             showGaps={showGaps}
+            solverError={solverError}
             onRun={handleRun}
             onExport={handleExport}
             onExportPng={handleExportPng}

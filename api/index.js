@@ -64,11 +64,11 @@ app.post('/process-csv', upload.fields([
     uploadedFiles.push(...inputPaths);
 
     // Ruta del fitxer de sortida
-    const outputPath = path.join(__dirname, 'uploads', `output-${Date.now()}.csv`);
+    const outputPath = path.join("./solutions", 'uploads', `output-${Date.now()}.csv`);
     uploadedFiles.push(outputPath);
 
     // Ruta del binari C++ compilat
-    const binaryPath = path.join(__dirname, '..', 'cpp', 'processor');
+    const binaryPath = path.join("", '..', 'cpp', 'processor');
 
     // Construïm la comanda: ./processor input1.csv input2.csv input3.csv input4.csv output.csv
     const command = `"${binaryPath}" "${inputPaths[0]}" "${inputPaths[1]}" "${inputPaths[2]}" "${inputPaths[3]}" "${outputPath}"`;

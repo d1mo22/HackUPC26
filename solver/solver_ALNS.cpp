@@ -273,6 +273,37 @@ vector<Point> gap_poly_values(double x, double y, int w, int d, int gap, int ang
     return res;
 }
 
+static inline Point gap_direction(int angle) {
+    double rad = angle * PI / 180.0;
+    return { -sin(rad), cos(rad) };
+}
+
+static inline bool dirs_collinear(Point a, Point b) {
+    double dot = a.x * b.x + a.y * b.y;
+    return fabs(fabs(dot) - 1.0) < 1e-6;
+}
+
+// signed projection extent of bay polygon on a unit axis
+static inline pair<double,double> project_extent(const vector<Point>& poly, Point axis) {
+    double mn = poly[0].x*axis.x + poly[0].y*axis.y;
+    double mx = mn;
+    for (auto& p : poly) {
+        double v = p.x*axis.x + p.y*axis.y;
+        mn = min(mn, v); mx = max(mx, v);
+    }
+    return {mn, mx};
+}
+
+// returns the axial gap distance between two bay polys along `axis`
+// negative if they overlap on that axis
+static inline double axial_gap(const vector<Point>& a, const vector<Point>& b, Point axis) {
+    auto [a_lo, a_hi] = project_extent(a, axis);
+    auto [b_lo, b_hi] = project_extent(b, axis);
+    if (a_hi <= b_lo) return b_lo - a_hi;
+    if (b_hi <= a_lo) return a_lo - b_hi;
+    return -1.0; // overlap
+}
+
 vector<Point> bay_poly(const PlacedBay& p) {
     return make_rotated_rect(p.x, p.y, p.w, p.d, p.angle);
 }
@@ -422,14 +453,42 @@ bool valid_candidate(
             if (polygons_overlap_area(poly, op)) return false;
         }
 
-    for (auto& poly : polys)
-        for (int i=0;i<(int)sol.size();i++) {
-            if (i==ignore) continue;
-            for (auto& other : all_polys(sol[i])) {
-                if (!aabb_overlap(poly, other)) continue;
-                if (polygons_overlap_area(poly, other)) return false;
+    auto cand_dir = gap_direction(angle);
+
+    for (int i = 0; i < (int)sol.size(); i++) {
+        if (i == ignore) continue;
+        const auto& other = sol[i];
+
+        auto other_bay_p = bay_poly(other);
+        auto other_gap_p = gap_poly(other);
+
+        // 1) bay vs bay: never allowed
+        if (aabb_overlap(bay, other_bay_p) &&
+            polygons_overlap_area(bay, other_bay_p)) return false;
+
+        // 2) bay vs other.gap: never allowed
+        if (!other_gap_p.empty() && aabb_overlap(bay, other_gap_p) &&
+            polygons_overlap_area(bay, other_gap_p)) return false;
+
+        // 3) other.bay vs cand.gap: never allowed
+        if (!gp.empty() && aabb_overlap(gp, other_bay_p) &&
+            polygons_overlap_area(gp, other_bay_p)) return false;
+
+        // 4) gap vs gap with face-to-face exemption
+        if (!gp.empty() && !other_gap_p.empty() &&
+            aabb_overlap(gp, other_gap_p) &&
+            polygons_overlap_area(gp, other_gap_p)) {
+
+            Point other_dir = gap_direction(other.angle);
+            if (!dirs_collinear(cand_dir, other_dir)) {
+                return false; // overlapping gaps not co-linear → reject
             }
+            // co-linear: enforce bay-to-bay axial separation ≥ max(gap_A, gap_B)
+            double need = (double) max(gap, other.gap);
+            double sep  = axial_gap(bay, other_bay_p, cand_dir);
+            if (sep + EPS < need) return false;
         }
+    }
 
     auto bx = minmax_x(bay);
     if (h > min_ceiling_between(bx.first, bx.second, ceiling)+EPS) return false;

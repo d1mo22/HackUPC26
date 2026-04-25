@@ -3,6 +3,9 @@ import type { Solution, WarehouseCase } from '../types'
 interface Props {
   solution: Solution | null
   warehouseCase: WarehouseCase | null
+  selectedTypeIds: Set<number>
+  onToggleType: (id: number) => void
+  onClearFilter: () => void
 }
 
 const BAY_COLORS = [
@@ -14,50 +17,74 @@ export function getBayColor(typeId: number): string {
   return BAY_COLORS[typeId % BAY_COLORS.length]
 }
 
-export default function BayLegend({ solution, warehouseCase }: Props) {
+export default function BayLegend({ solution, warehouseCase, selectedTypeIds, onToggleType, onClearFilter }: Props) {
   if (!solution || !warehouseCase) return null
 
   const typeMap = new Map(warehouseCase.bayTypes.map(t => [t.id, t]))
-
-  const usedTypeIds = [...new Set(solution.placements.map(p => p.id))]
-    .sort((a, b) => a - b)
-
+  const usedTypeIds = [...new Set(solution.placements.map(p => p.id))].sort((a, b) => a - b)
   const counts = new Map<number, number>()
-  for (const p of solution.placements) {
-    counts.set(p.id, (counts.get(p.id) ?? 0) + 1)
-  }
+  for (const p of solution.placements) counts.set(p.id, (counts.get(p.id) ?? 0) + 1)
+
+  const hasFilter = selectedTypeIds.size > 0
 
   return (
     <div style={{ padding: 16 }}>
-      <p style={{
-        color: 'var(--color-muted)',
-        fontFamily: 'var(--font-mono)',
-        fontSize: 11,
-        textTransform: 'uppercase',
-        letterSpacing: '0.08em',
-        marginBottom: 12,
-      }}>
-        Bay types
-      </p>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <p style={{
+          color: 'var(--color-muted)',
+          fontFamily: 'var(--font-mono)',
+          fontSize: 11,
+          textTransform: 'uppercase',
+          letterSpacing: '0.08em',
+          margin: 0,
+        }}>
+          Bay types
+        </p>
+        {hasFilter && (
+          <button
+            onClick={onClearFilter}
+            style={{
+              background: 'none',
+              border: '1px solid var(--color-border)',
+              borderRadius: 4,
+              color: 'var(--color-muted)',
+              fontFamily: 'var(--font-mono)',
+              fontSize: 10,
+              padding: '2px 7px',
+              cursor: 'pointer',
+            }}
+          >
+            Clear filter
+          </button>
+        )}
+      </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {usedTypeIds.map(id => {
           const type = typeMap.get(id)
           if (!type) return null
           const color = getBayColor(id)
           const count = counts.get(id) ?? 0
+          const active = selectedTypeIds.has(id)
+          const dimmed = hasFilter && !active
 
           return (
-            <div
+            <button
               key={id}
+              onClick={() => onToggleType(id)}
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: 10,
                 padding: '8px 10px',
                 borderRadius: 6,
-                background: `${color}0f`,
-                border: `1px solid ${color}33`,
+                background: active ? `${color}22` : `${color}0f`,
+                border: active ? `1px solid ${color}` : `1px solid ${color}33`,
+                opacity: dimmed ? 0.35 : 1,
+                transition: 'opacity 0.15s, border-color 0.15s, background 0.15s',
+                cursor: 'pointer',
+                textAlign: 'left',
+                width: '100%',
               }}
             >
               {/* Color swatch */}
@@ -93,7 +120,7 @@ export default function BayLegend({ solution, warehouseCase }: Props) {
                   </span>
                 </div>
               </div>
-            </div>
+            </button>
           )
         })}
       </div>

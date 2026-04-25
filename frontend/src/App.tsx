@@ -1,8 +1,9 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Circle, CheckCircle, Loader2, XCircle } from 'lucide-react'
 import FileLoader, { type RawFiles } from './components/FileLoader'
 import RightPanel from './components/RightPanel'
 import Controls from './components/Controls'
+import Canvas from './components/Canvas'
 import { computeMetrics } from './lib/scoring'
 import { parseSolution } from './lib/csvParser'
 import type { RunRecord, WarehouseCase, Solution } from './types'
@@ -16,14 +17,67 @@ export default function App() {
   const [isRunning, setIsRunning] = useState(false)
   const [showCeiling, setShowCeiling] = useState(false)
   const [showLabels, setShowLabels] = useState(true)
+  const [showGaps, setShowGaps] = useState(false)
   const [runHistory, setRunHistory] = useState<RunRecord[]>([])
   const [activeRunId, setActiveRunId] = useState<number | null>(null)
+  const [selectedTypeIds, setSelectedTypeIds] = useState<Set<number>>(new Set())
+  const [canvasViewMode, setCanvasViewMode] = useState<'2d' | '3d' | undefined>(undefined)
+  const [revealCount, setRevealCount] = useState<number | null>(null)
+  const revealTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const solverStartRef = useRef<number>(0)
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      // Don't fire when typing in inputs
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      switch (e.key.toLowerCase()) {
+        case 'r': fitCanvasRef.current?.(); break
+        case 'l': setShowLabels(v => !v); break
+        case 'g': setShowGaps(v => !v); break
+        case 'c': setShowCeiling(v => !v); break
+        case '2': setCanvasViewMode('2d'); break
+        case '3': setCanvasViewMode('3d'); break
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  const fitCanvasRef = useRef<(() => void) | null>(null)
+  const canvasElRef = useRef<HTMLCanvasElement | null>(null)
+
+  function startRevealAnimation(total: number) {
+    if (revealTimerRef.current) clearInterval(revealTimerRef.current)
+    setRevealCount(0)
+    let count = 0
+    const batchSize = Math.max(1, Math.floor(total / 60)) // ~60 steps
+    const intervalMs = Math.max(16, Math.floor(1200 / (total / batchSize)))
+    revealTimerRef.current = setInterval(() => {
+      count += batchSize
+      if (count >= total) {
+        setRevealCount(null) // null = show all
+        clearInterval(revealTimerRef.current!)
+        revealTimerRef.current = null
+      } else {
+        setRevealCount(count)
+      }
+    }, intervalMs)
+  }
 
   function handleCaseLoaded(wc: WarehouseCase, files: RawFiles) {
     setWarehouseCase(wc)
     setRawFiles(files)
     setSolution(null)
+    setSelectedTypeIds(new Set())
+  }
+
+  function handleToggleType(id: number) {
+    setSelectedTypeIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
   }
 
   async function handleRun() {
@@ -53,6 +107,7 @@ export default function App() {
         timestamp: new Date(),
       }
       setSolution(sol)
+      startRevealAnimation(placements.length)
       setRunHistory(prev => [...prev, record])
       setActiveRunId(record.id)
     } catch (err) {
@@ -64,6 +119,7 @@ export default function App() {
 
   function handleRestore(sol: Solution, id: number) {
     setSolution(sol)
+    startRevealAnimation(sol.placements.length)
     setActiveRunId(id)
   }
 
@@ -77,6 +133,16 @@ export default function App() {
     a.download = 'solution.csv'
     a.click()
     URL.revokeObjectURL(url)
+  }
+
+  function handleExportPng() {
+    const canvas = canvasElRef.current
+    if (!canvas) return
+    const url = canvas.toDataURL('image/png')
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'warehouse_layout.png'
+    a.click()
   }
 
   const status: 'idle' | 'ready' | 'running' | 'error' =
@@ -107,7 +173,7 @@ export default function App() {
           <div style={{ flex: 1, overflowY: 'auto' }}>
             <FileLoader
               onCaseLoaded={handleCaseLoaded}
-              onSolutionLoaded={(s) => setSolution(s)}
+              onSolutionLoaded={(s) => { setSolution(s); startRevealAnimation(s.placements.length) }}
             />
           </div>
 
@@ -117,24 +183,36 @@ export default function App() {
             hasSolution={!!solution}
             showCeiling={showCeiling}
             showLabels={showLabels}
+            showGaps={showGaps}
             onRun={handleRun}
             onExport={handleExport}
+            onExportPng={handleExportPng}
             onToggleCeiling={() => setShowCeiling(v => !v)}
             onToggleLabels={() => setShowLabels(v => !v)}
+            onToggleGaps={() => setShowGaps(v => !v)}
           />
         </aside>
 
         {/* Canvas center */}
         <main
-          className="flex-1 overflow-hidden flex flex-col items-center justify-center gap-2"
+          className="flex-1 overflow-hidden"
           style={{ background: 'var(--color-bg)' }}
         >
-          <span style={{ color: 'var(--color-muted)', fontSize: 14 }}>Canvas (T7)</span>
-          {!warehouseCase && (
-            <span style={{ color: 'var(--color-muted)', fontSize: 12 }}>
-              Load the 4 CSV files in the left panel to begin
-            </span>
-          )}
+          <Canvas
+            polygon={warehouseCase?.polygon ?? null}
+            obstacles={warehouseCase?.obstacles ?? null}
+            ceiling={warehouseCase?.ceiling ?? null}
+            bayTypes={warehouseCase?.bayTypes ?? null}
+            placements={revealCount !== null && solution ? solution.placements.slice(0, revealCount) : (solution?.placements ?? null)}
+            showGaps={showGaps}
+            showCeiling={showCeiling}
+            showLabels={showLabels}
+            selectedTypeIds={selectedTypeIds}
+            viewModeOverride={canvasViewMode}
+            onViewModeChange={setCanvasViewMode}
+            onFitRef={(fn) => { fitCanvasRef.current = fn }}
+            onCanvasRef={(el) => { canvasElRef.current = el }}
+          />
         </main>
 
         {/* Right panel */}
@@ -148,6 +226,9 @@ export default function App() {
             runHistory={runHistory}
             activeRunId={activeRunId}
             onRestore={handleRestore}
+            selectedTypeIds={selectedTypeIds}
+            onToggleType={handleToggleType}
+            onClearFilter={() => setSelectedTypeIds(new Set())}
           />
         </aside>
 

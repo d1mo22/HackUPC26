@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { TrendingUp, Box, DollarSign, Package, LayoutGrid } from 'lucide-react'
+import { TrendingUp, Box, DollarSign, Package, LayoutGrid, Info } from 'lucide-react'
 import { computeMetrics } from '../lib/scoring'
 import type { Solution, WarehouseCase } from '../types'
 
@@ -26,6 +26,7 @@ export default function MetricsPanel({ solution, warehouseCase }: Props) {
           <span style={{ color: 'var(--color-muted)', fontSize: 11, fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
             Q Score
           </span>
+          <QFormulaTooltip />
         </div>
         <AnimatedNumber
           value={metrics?.q ?? null}
@@ -75,6 +76,51 @@ function MetricRow({ icon, label, value }: { icon: React.ReactNode; label: strin
   )
 }
 
+function QFormulaTooltip() {
+  const [visible, setVisible] = useState(false)
+  const [pos, setPos] = useState({ top: 0, left: 0 })
+  const btnRef = useRef<HTMLButtonElement>(null)
+
+  function showTooltip() {
+    if (btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect()
+      setPos({ top: r.bottom + 6, left: r.right })
+    }
+    setVisible(true)
+  }
+
+  return (
+    <div style={{ marginLeft: 'auto', lineHeight: 0 }}>
+      <button
+        ref={btnRef}
+        onMouseEnter={showTooltip}
+        onMouseLeave={() => setVisible(false)}
+        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'var(--color-muted)' }}
+        aria-label="Q score formula"
+      >
+        <Info size={11} />
+      </button>
+      {visible && (
+        <div style={{
+          position: 'fixed', top: pos.top, left: pos.left, zIndex: 1000,
+          transform: 'translateX(-100%)',
+          background: '#0f172a', border: '1px solid #334155',
+          borderRadius: 6, padding: '12px 14px',
+          fontFamily: 'var(--font-mono)', fontSize: 11,
+          color: 'var(--color-fg)', whiteSpace: 'nowrap',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.7)',
+          pointerEvents: 'none', lineHeight: 1.6,
+        }}>
+          <div style={{ marginBottom: 8, color: 'var(--color-muted)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Formula</div>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Q = (Σ price/loads)<sup style={{ fontSize: 9 }}>exp</sup></div>
+          <div style={{ color: 'var(--color-muted)', fontSize: 10, marginBottom: 4 }}>exp = 2 − area_bays / area_warehouse</div>
+          <div style={{ color: '#22c55e', fontSize: 10 }}>Lower Q is better</div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function AnimatedNumber({
   value,
   format,
@@ -93,12 +139,13 @@ function AnimatedNumber({
     const duration = 600
     const start = performance.now()
     const from = 0
+    const target = value
 
     function tick(now: number) {
       const elapsed = now - start
       const progress = Math.min(elapsed / duration, 1)
       const eased = 1 - Math.pow(1 - progress, 3)
-      setDisplay(format(from + (value - from) * eased))
+      setDisplay(format(from + (target - from) * eased))
       if (progress < 1) rafRef.current = requestAnimationFrame(tick)
     }
 

@@ -1,4 +1,5 @@
-import { Layers, Tag } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Box, Layers, Tag } from 'lucide-react'
 
 interface Props {
   isReady: boolean
@@ -6,10 +7,13 @@ interface Props {
   hasSolution: boolean
   showCeiling: boolean
   showLabels: boolean
+  showGaps: boolean
   onRun: () => void
   onExport: () => void
+  onExportPng: () => void
   onToggleCeiling: () => void
   onToggleLabels: () => void
+  onToggleGaps: () => void
 }
 
 export default function Controls({
@@ -18,11 +22,28 @@ export default function Controls({
   hasSolution,
   showCeiling,
   showLabels,
+  showGaps,
   onRun,
   onExport,
+  onExportPng,
   onToggleCeiling,
   onToggleLabels,
+  onToggleGaps,
 }: Props) {
+  const [elapsed, setElapsed] = useState(0)
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  useEffect(() => {
+    if (isRunning) {
+      setElapsed(0)
+      intervalRef.current = setInterval(() => setElapsed(s => s + 1), 1000)
+    } else {
+      if (intervalRef.current) clearInterval(intervalRef.current)
+      setElapsed(0)
+    }
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
+  }, [isRunning])
+
   return (
     <div style={{ padding: 16, flexShrink: 0, borderTop: '1px solid var(--color-border)', display: 'flex', flexDirection: 'column', gap: 10 }}>
 
@@ -37,6 +58,12 @@ export default function Controls({
         label="Bay labels"
         enabled={showLabels}
         onToggle={onToggleLabels}
+      />
+      <Toggle
+        icon={<Box size={13} aria-hidden />}
+        label="Gap zones"
+        enabled={showGaps}
+        onToggle={onToggleGaps}
       />
 
       <button
@@ -63,31 +90,52 @@ export default function Controls({
         }}
       >
         {isRunning && (
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ animation: 'spin 1s linear infinite' }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }}>
             <path d="M21 12a9 9 0 1 1-6.219-8.56" />
           </svg>
         )}
-        {isRunning ? 'Running…' : 'Run Solver'}
+        {isRunning ? `Running… ${elapsed}s` : 'Run Solver'}
       </button>
 
-      <button
-        onClick={onExport}
-        disabled={!hasSolution}
-        style={{
-          width: '100%',
-          padding: '8px 0',
-          borderRadius: 6,
-          border: '1px solid var(--color-border)',
-          background: 'transparent',
-          fontFamily: 'var(--font-ui)',
-          fontSize: 13,
-          color: hasSolution ? 'var(--color-muted)' : 'var(--color-border)',
-          cursor: hasSolution ? 'pointer' : 'not-allowed',
-          transition: 'color 0.15s, border-color 0.15s',
-        }}
-      >
-        ↓ Export CSV
-      </button>
+      {/* Export buttons */}
+      <div style={{ display: 'flex', gap: 6 }}>
+        <button
+          onClick={onExport}
+          disabled={!hasSolution}
+          style={{
+            flex: 1,
+            padding: '8px 0',
+            borderRadius: 6,
+            border: '1px solid var(--color-border)',
+            background: 'transparent',
+            fontFamily: 'var(--font-ui)',
+            fontSize: 12,
+            color: hasSolution ? 'var(--color-muted)' : 'var(--color-border)',
+            cursor: hasSolution ? 'pointer' : 'not-allowed',
+            transition: 'color 0.15s, border-color 0.15s',
+          }}
+        >
+          ↓ CSV
+        </button>
+        <button
+          onClick={onExportPng}
+          disabled={!hasSolution}
+          style={{
+            flex: 1,
+            padding: '8px 0',
+            borderRadius: 6,
+            border: '1px solid var(--color-border)',
+            background: 'transparent',
+            fontFamily: 'var(--font-ui)',
+            fontSize: 12,
+            color: hasSolution ? 'var(--color-muted)' : 'var(--color-border)',
+            cursor: hasSolution ? 'pointer' : 'not-allowed',
+            transition: 'color 0.15s, border-color 0.15s',
+          }}
+        >
+          ↓ PNG
+        </button>
+      </div>
 
       <style>{`@keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }`}</style>
     </div>

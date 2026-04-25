@@ -13,6 +13,9 @@ interface Props {
   runHistory: RunRecord[]
   activeRunId: number | null
   onRestore: (solution: Solution, id: number) => void
+  selectedTypeIds: Set<number>
+  onToggleType: (id: number) => void
+  onClearFilter: () => void
 }
 
 const TABS: { id: Tab; label: string }[] = [
@@ -21,7 +24,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'history',   label: 'History'   },
 ]
 
-export default function RightPanel({ solution, warehouseCase, runHistory, activeRunId, onRestore }: Props) {
+export default function RightPanel({ solution, warehouseCase, runHistory, activeRunId, onRestore, selectedTypeIds, onToggleType, onClearFilter }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>('metrics')
 
   function handleRestore(sol: Solution, id: number) {
@@ -67,7 +70,13 @@ export default function RightPanel({ solution, warehouseCase, runHistory, active
           <>
             <MetricsPanel solution={solution} warehouseCase={warehouseCase} />
             <div style={{ borderTop: '1px solid var(--color-border)' }}>
-              <BayLegend solution={solution} warehouseCase={warehouseCase} />
+              <BayLegend
+                solution={solution}
+                warehouseCase={warehouseCase}
+                selectedTypeIds={selectedTypeIds}
+                onToggleType={onToggleType}
+                onClearFilter={onClearFilter}
+              />
             </div>
           </>
         )}

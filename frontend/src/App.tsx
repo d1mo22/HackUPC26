@@ -1,52 +1,82 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Circle, CheckCircle, Loader2, XCircle } from 'lucide-react'
 import FileLoader, { type RawFiles } from './components/FileLoader'
-import MetricsPanel from './components/MetricsPanel'
-import BayLegend from './components/BayLegend'
+import RightPanel from './components/RightPanel'
 import Controls from './components/Controls'
-import type { WarehouseCase, Solution } from './types'
+import { computeMetrics } from './lib/scoring'
+import { parseSolution } from './lib/csvParser'
+import type { RunRecord, WarehouseCase, Solution } from './types'
 
-const MOCK_CASE: WarehouseCase = {
-  polygon: [{ x: 0, y: 0 }, { x: 10000, y: 0 }, { x: 10000, y: 10000 }, { x: 0, y: 10000 }],
-  obstacles: [],
-  ceiling: [{ x: 0, h: 3000 }],
-  bayTypes: [
-    { id: 0, w: 800,  d: 1200, h: 2800, gap: 200, loads: 4,  price: 2000 },
-    { id: 1, w: 1600, d: 1200, h: 2800, gap: 200, loads: 8,  price: 2500 },
-    { id: 5, w: 2400, d: 1000, h: 1800, gap: 150, loads: 9,  price: 2600 },
-    { id: 3, w: 800,  d: 1000, h: 1800, gap: 150, loads: 3,  price: 1800 },
-  ],
-}
-
-const MOCK_SOLUTION: Solution = {
-  placements: [
-    { id: 5, x: 1700, y: 4200, rotation: 1 },
-    { id: 5, x: 1700, y: 6600, rotation: 1 },
-    { id: 3, x: 1700, y: 9000, rotation: 1 },
-    { id: 1, x: 1500, y: 750,  rotation: 1 },
-    { id: 0, x: 1500, y: 3150, rotation: 1 },
-    { id: 5, x: 2900, y: 750,  rotation: 0 },
-    { id: 3, x: 2900, y: 1900, rotation: 1 },
-    { id: 3, x: 4050, y: 1900, rotation: 1 },
-    { id: 5, x: 5300, y: 750,  rotation: 0 },
-    { id: 3, x: 5300, y: 1900, rotation: 1 },
-    { id: 3, x: 6450, y: 1900, rotation: 1 },
-    { id: 1, x: 7700, y: 750,  rotation: 0 },
-  ],
-}
+let nextRunId = 1
 
 export default function App() {
-  const [warehouseCase, setWarehouseCase] = useState<WarehouseCase | null>(MOCK_CASE)
+  const [warehouseCase, setWarehouseCase] = useState<WarehouseCase | null>(null)
   const [rawFiles, setRawFiles] = useState<RawFiles | null>(null)
-  const [solution, setSolution] = useState<Solution | null>(MOCK_SOLUTION)
+  const [solution, setSolution] = useState<Solution | null>(null)
   const [isRunning, setIsRunning] = useState(false)
   const [showCeiling, setShowCeiling] = useState(false)
   const [showLabels, setShowLabels] = useState(true)
+  const [runHistory, setRunHistory] = useState<RunRecord[]>([])
+  const [activeRunId, setActiveRunId] = useState<number | null>(null)
+  const solverStartRef = useRef<number>(0)
 
   function handleCaseLoaded(wc: WarehouseCase, files: RawFiles) {
     setWarehouseCase(wc)
     setRawFiles(files)
     setSolution(null)
+  }
+
+  async function handleRun() {
+    if (!rawFiles || !warehouseCase) return
+    setIsRunning(true)
+    solverStartRef.current = Date.now()
+    try {
+      const formData = new FormData()
+      formData.append('warehouse', rawFiles.warehouse)
+      formData.append('obstacles', rawFiles.obstacles)
+      formData.append('ceiling', rawFiles.ceiling)
+      formData.append('types', rawFiles.types)
+      const res = await fetch('/solve', { method: 'POST', body: formData })
+      if (!res.ok) throw new Error(`Server error: ${res.status}`)
+      const text = await res.text()
+      const blob = new Blob([text], { type: 'text/csv' })
+      const file = new File([blob], 'solution.csv')
+      const placements = await parseSolution(file)
+      const sol: Solution = { placements }
+      const elapsedMs = Date.now() - solverStartRef.current
+      const metrics = computeMetrics(placements, warehouseCase.bayTypes, warehouseCase.polygon)
+      const record: RunRecord = {
+        id: nextRunId++,
+        solution: sol,
+        metrics: { q: metrics.q, coveragePct: metrics.coveragePct, bayCount: metrics.bayCount },
+        elapsedMs,
+        timestamp: new Date(),
+      }
+      setSolution(sol)
+      setRunHistory(prev => [...prev, record])
+      setActiveRunId(record.id)
+    } catch (err) {
+      console.error('Solver failed:', err)
+    } finally {
+      setIsRunning(false)
+    }
+  }
+
+  function handleRestore(sol: Solution, id: number) {
+    setSolution(sol)
+    setActiveRunId(id)
+  }
+
+  function handleExport() {
+    if (!solution) return
+    const rows = ['Id,X,Y,Rotation', ...solution.placements.map(p => `${p.id},${p.x},${p.y},${p.rotation}`)]
+    const blob = new Blob([rows.join('\n')], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'solution.csv'
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   const status: 'idle' | 'ready' | 'running' | 'error' =
@@ -84,9 +114,11 @@ export default function App() {
           <Controls
             isReady={!!warehouseCase}
             isRunning={isRunning}
+            hasSolution={!!solution}
             showCeiling={showCeiling}
             showLabels={showLabels}
-            onRun={() => {}}
+            onRun={handleRun}
+            onExport={handleExport}
             onToggleCeiling={() => setShowCeiling(v => !v)}
             onToggleLabels={() => setShowLabels(v => !v)}
           />
@@ -107,15 +139,16 @@ export default function App() {
 
         {/* Right panel */}
         <aside
-          className="flex flex-col shrink-0 overflow-y-auto"
+          className="flex flex-col shrink-0 overflow-hidden"
           style={{ width: 280, background: 'var(--color-card)', borderLeft: '1px solid var(--color-border)' }}
         >
-          <div style={{ borderBottom: '1px solid var(--color-border)' }}>
-            <MetricsPanel solution={solution} warehouseCase={warehouseCase} />
-          </div>
-          <div style={{ flex: 1, overflowY: 'auto' }}>
-            <BayLegend solution={solution} warehouseCase={warehouseCase} />
-          </div>
+          <RightPanel
+            solution={solution}
+            warehouseCase={warehouseCase}
+            runHistory={runHistory}
+            activeRunId={activeRunId}
+            onRestore={handleRestore}
+          />
         </aside>
 
       </div>

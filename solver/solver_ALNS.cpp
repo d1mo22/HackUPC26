@@ -31,7 +31,6 @@ const int MAX_PTS_ADD   = 80;
 const int ANGLE_SAMPLE  = 8;
 
 // ALNS params
-const int LNS_ITERATIONS = 700;
 const int LNS_K_MIN = 2;
 const int LNS_K_MAX = 8;
 const int LNS_REPAIR_EXTRA = 2;
@@ -39,7 +38,6 @@ const double LNS_SA_T0 = 0.03;
 const double LNS_SA_ALPHA = 0.997;
 
 // intensification phase
-const int INTENSIFY_ITER = 450;
 const int INTENSIFY_K_MIN = 2;
 const int INTENSIFY_K_MAX = 4;
 const int INTENSIFY_ANGLE_SAMPLE = 12;
@@ -744,7 +742,7 @@ Solution alns_core(
     const vector<pair<double,double>>& ceiling,
     double wh_area,
     mt19937& rng,
-    int iterations,
+    const Deadline& deadline,
     int k_min,
     int k_max,
     int repair_extra,
@@ -771,7 +769,8 @@ Solution alns_core(
 
     const double decay = 0.85;
 
-    for (int it = 0; it < iterations; it++) {
+    int it = 0;
+    while (!deadline.expired()) {
         Solution cand = current;
         int k = Kdist(rng);
 
@@ -828,6 +827,7 @@ Solution alns_core(
         repair_weights[r_idx]  = repair_weights[r_idx]*decay  + reward*(1.0-decay);
 
         T *= alpha;
+        it++;
     }
 
     return best;
@@ -840,10 +840,11 @@ Solution alns(
     const vector<Obstacle>& obstacles,
     const vector<pair<double,double>>& ceiling,
     double wh_area,
+    const Deadline& deadline,
     mt19937& rng)
 {
     return alns_core(sol, types, warehouse, obstacles, ceiling, wh_area, rng,
-                     LNS_ITERATIONS, LNS_K_MIN, LNS_K_MAX, LNS_REPAIR_EXTRA,
+                     deadline, LNS_K_MIN, LNS_K_MAX, LNS_REPAIR_EXTRA,
                      ANGLE_SAMPLE, MAX_PTS_ADD, LNS_SA_T0, LNS_SA_ALPHA, false);
 }
 
@@ -854,10 +855,11 @@ Solution intensify(
     const vector<Obstacle>& obstacles,
     const vector<pair<double,double>>& ceiling,
     double wh_area,
+    const Deadline& deadline,
     mt19937& rng)
 {
     return alns_core(sol, types, warehouse, obstacles, ceiling, wh_area, rng,
-                     INTENSIFY_ITER, INTENSIFY_K_MIN, INTENSIFY_K_MAX, LNS_REPAIR_EXTRA + 1,
+                     deadline, INTENSIFY_K_MIN, INTENSIFY_K_MAX, LNS_REPAIR_EXTRA + 1,
                      INTENSIFY_ANGLE_SAMPLE, INTENSIFY_MAX_PTS_ADD,
                      INTENSIFY_T0, INTENSIFY_ALPHA, true);
 }
@@ -937,6 +939,10 @@ int main(int argc, char* argv[]) {
     Solution best_global;
     double best_global_q = 1e100;
 
+    double total_alns_budget = WALL_BUDGET_SECONDS;
+    double per_restart = total_alns_budget / RESTARTS;
+    auto global_alns_deadline = make_deadline(total_alns_budget);
+
     // Parallel restarts
     #pragma omp parallel
     {
@@ -948,7 +954,9 @@ int main(int argc, char* argv[]) {
         #pragma omp for schedule(dynamic)
         for (int r=0; r<RESTARTS; r++) {
             auto sol = build_initial(types,warehouse,obstacles,ceiling,wh_area,trng);
-            sol = alns(sol,types,warehouse,obstacles,ceiling,wh_area,trng);
+            double slice = min(per_restart, global_alns_deadline.remaining_seconds());
+            auto restart_deadline = make_deadline(max(0.5, slice));
+            sol = alns(sol, types, warehouse, obstacles, ceiling, wh_area, restart_deadline, trng);
 
             double q = q_now(sol, wh_area);
             bool valid = is_valid_solution(sol.bays, warehouse, obstacles, ceiling);
@@ -980,7 +988,8 @@ int main(int argc, char* argv[]) {
     // Intensification phase on best global
     if (!best_global.empty()) {
         mt19937 irng = make_rng(999999u);
-        auto improved = intensify(best_global, types, warehouse, obstacles, ceiling, wh_area, irng);
+        auto intensify_deadline = make_deadline(INTENSIFY_BUDGET_SECONDS);
+        auto improved = intensify(best_global, types, warehouse, obstacles, ceiling, wh_area, intensify_deadline, irng);
         double q2 = q_now(improved, wh_area);
         bool valid2 = is_valid_solution(improved.bays, warehouse, obstacles, ceiling);
 

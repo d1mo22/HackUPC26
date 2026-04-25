@@ -23,12 +23,17 @@ const double EPS = 1e-7;
 const double PI  = acos(-1.0);
 
 // Angles to try (multiples of 10°, only 0–170 because 180=0 for a rect)
-const vector<int> ANGLES = {0,10,20,30,40,50,60,70,80,90,100,110,120,130,140,150,160,170};
+const vector<int> ANGLES = {
+    0,10,20,30,40,50,60,70,80,90,
+    100,110,120,130,140,150,160,170,
+    180,190,200,210,220,230,240,250,
+    260,270,280,290,300,310,320,330,340,350
+};
 
 const int INITIAL_ADDS  = 70;
 const int RESTARTS      = 16;
 const int MAX_PTS_ADD   = 80;
-const int ANGLE_SAMPLE  = 8;
+const int ANGLE_SAMPLE  = 12;
 
 // ALNS params
 const int LNS_K_MIN = 2;
@@ -40,7 +45,7 @@ const double LNS_SA_ALPHA = 0.997;
 // intensification phase
 const int INTENSIFY_K_MIN = 2;
 const int INTENSIFY_K_MAX = 4;
-const int INTENSIFY_ANGLE_SAMPLE = 12;
+const int INTENSIFY_ANGLE_SAMPLE = 18;
 const int INTENSIFY_MAX_PTS_ADD = 100;
 const double INTENSIFY_T0 = 0.01;
 const double INTENSIFY_ALPHA = 0.998;

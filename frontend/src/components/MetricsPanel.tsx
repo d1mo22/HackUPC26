@@ -30,7 +30,7 @@ export default function MetricsPanel({ solution, warehouseCase }: Props) {
         </div>
         <AnimatedNumber
           value={metrics?.q ?? null}
-          format={(v) => v.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          format={(v) => v.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           style={{ fontFamily: 'var(--font-mono)', fontSize: 28, fontWeight: 700, color: 'var(--color-accent)', lineHeight: 1 }}
         />
       </div>

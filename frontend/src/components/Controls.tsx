@@ -3,9 +3,11 @@ import { Layers, Tag } from 'lucide-react'
 interface Props {
   isReady: boolean
   isRunning: boolean
+  hasSolution: boolean
   showCeiling: boolean
   showLabels: boolean
   onRun: () => void
+  onExport: () => void
   onToggleCeiling: () => void
   onToggleLabels: () => void
 }
@@ -13,9 +15,11 @@ interface Props {
 export default function Controls({
   isReady,
   isRunning,
+  hasSolution,
   showCeiling,
   showLabels,
   onRun,
+  onExport,
   onToggleCeiling,
   onToggleLabels,
 }: Props) {
@@ -66,6 +70,25 @@ export default function Controls({
         {isRunning ? 'Running…' : 'Run Solver'}
       </button>
 
+      <button
+        onClick={onExport}
+        disabled={!hasSolution}
+        style={{
+          width: '100%',
+          padding: '8px 0',
+          borderRadius: 6,
+          border: '1px solid var(--color-border)',
+          background: 'transparent',
+          fontFamily: 'var(--font-ui)',
+          fontSize: 13,
+          color: hasSolution ? 'var(--color-muted)' : 'var(--color-border)',
+          cursor: hasSolution ? 'pointer' : 'not-allowed',
+          transition: 'color 0.15s, border-color 0.15s',
+        }}
+      >
+        ↓ Export CSV
+      </button>
+
       <style>{`@keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }`}</style>
     </div>
   )
@@ -103,7 +126,6 @@ function Toggle({
         <span style={{ fontSize: 13, fontFamily: 'var(--font-ui)', color: 'var(--color-muted)' }}>{label}</span>
       </div>
 
-      {/* Pill toggle */}
       <div style={{
         width: 32,
         height: 18,

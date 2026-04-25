@@ -4,7 +4,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon as MplPolygon, Patch
 
-CASES = ["Case0", "Case1", "Case2", "Case3"]
+CASES = ["CaseWeird", "Case1", "Case2", "Case3", "Case0", "Case40", "CaseAngledA", "CaseAngledB", "CaseAngledC", "CaseAngledD", "CaseDiagArmA", "CaseDiagArmB", "CaseDiagArmC", "CaseDiagArmD","CaseForcedAngle"]  # Ordenados por calidad visual (según mi criterio)
+CASES_PER_FIGURE = 4
 
 
 def safe_read(path, columns):
@@ -213,16 +214,6 @@ def draw_case(case, ax):
 def main():
     existing = [c for c in CASES if os.path.exists(f"{c}/solution.csv")]
 
-    fig, axes = plt.subplots(2, 2, figsize=(16, 16))
-    axes = axes.flatten()
-
-    for ax in axes:
-        ax.axis("off")
-
-    for ax, case in zip(axes, existing):
-        ax.axis("on")
-        draw_case(case, ax)
-
     legend_items = [
         Patch(facecolor="red", edgecolor="darkred", alpha=0.45, label="Obstacle"),
         Patch(facecolor="gray", edgecolor="black", alpha=0.58, label="Bay rotated footprint"),
@@ -230,14 +221,37 @@ def main():
         Patch(facecolor="none", edgecolor="black", label="Warehouse boundary"),
     ]
 
-    fig.legend(handles=legend_items, loc="upper center", ncol=4, fontsize=11)
-    fig.suptitle("Warehouse solutions - true rotated footprints", fontsize=18, fontweight="bold")
+    saved_files = []
 
-    plt.tight_layout(rect=[0, 0, 1, 0.96])
-    plt.savefig("all_solutions_angles.png", dpi=220)
+    for page, start in enumerate(range(0, len(existing), CASES_PER_FIGURE), start=1):
+        cases = existing[start:start + CASES_PER_FIGURE]
+
+        fig, axes = plt.subplots(2, 2, figsize=(16, 16))
+        axes = axes.flatten()
+
+        for ax in axes:
+            ax.axis("off")
+
+        for ax, case in zip(axes, cases):
+            ax.axis("on")
+            draw_case(case, ax)
+
+        fig.legend(handles=legend_items, loc="upper center", ncol=4, fontsize=11)
+        fig.suptitle(
+            f"Warehouse solutions - true rotated footprints (page {page})",
+            fontsize=18,
+            fontweight="bold"
+        )
+
+        plt.tight_layout(rect=[0, 0, 1, 0.96])
+
+        out_path = "all_solutions_angles.png" if page == 1 else f"all_solutions_angles_{page}.png"
+        plt.savefig(out_path, dpi=220)
+        saved_files.append(out_path)
+
     plt.show()
 
-    print("Guardado: all_solutions_angles.png")
+    print("Guardado:", ", ".join(saved_files))
 
 
 if __name__ == "__main__":

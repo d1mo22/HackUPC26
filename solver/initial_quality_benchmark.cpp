@@ -14,22 +14,13 @@
 using namespace std;
 using Clock = chrono::steady_clock;
 
-//const vector<string> CASES = {"Case0", "Case1", "Case2", "Case3","CaseWeird","Case40"};
-//const vector<string> CASES = {"CaseAngledA", "CaseAngledB", "CaseAngledC", "CaseAngledD"};
-//const vector<string> CASES = {"CaseDiagArmA", "CaseDiagArmB", "CaseDiagArmC", "CaseDiagArmD"};
-const vector<string> CASES = {"CaseWeird", "Case1", "Case2", "Case3", "Case0", "Case40", "CaseAngledA", "CaseAngledB", "CaseAngledC", "CaseAngledD", "CaseDiagArmA", "CaseDiagArmB", "CaseDiagArmC", "CaseDiagArmD","CaseForcedAngle"};  // Ordenados por calidad visual (según mi criterio)
+const vector<string> CASES = {"Case0", "Case1", "Case2", "Case3","CaseWeird","Case40"};
 
 const int ITERATIONS = 450;
 const int INITIAL_ADDS = 80;
 const int RESTARTS = 10;
 const int MAX_POINTS_ADD = 80;
 const int ANGLE_SAMPLE = 14;
-const int NUM_OPERATORS = 8;
-const double DIAGONAL_COMPACT_MAX_SHIFT = 12000.0;
-const double DIAGONAL_COMPACT_MIN_SHIFT = 25.0;
-const int DIAGONAL_COMPACT_MAX_BAYS = 12;
-const int DIAGONAL_COMPACT_BINARY_ITERS = 18;
-const int SHARED_GAP_MAX_ANCHORS = 24;
 
 const double EPS = 1e-7;
 const double PI = acos(-1.0);
@@ -74,8 +65,8 @@ struct Trig {
 };
 
 struct OperatorStats {
-    long long tried[NUM_OPERATORS] = {};
-    long long improved[NUM_OPERATORS] = {};
+    long long tried[6] = {0, 0, 0, 0, 0, 0};
+    long long improved[6] = {0, 0, 0, 0, 0, 0};
 };
 
 const vector<string> OP_NAMES = {
@@ -84,57 +75,15 @@ const vector<string> OP_NAMES = {
     "fill_aggressive",
     "remove_k_and_refill",
     "shared_gap_refill",
-    "upgrade_bay",
-    "rotate_compact_and_add",
-    "add_45_degree_bay"
+    "upgrade_bay"
 };
 
 vector<int> ANGLES = {
-    0, 45, 90, 135, 180, 225, 270, 315
+    0, 10, 20, 30, 40, 50, 60, 70, 80, 90,
+    100, 110, 120, 130, 140, 150, 160, 170,
+    180, 190, 200, 210, 220, 230, 240, 250, 260, 270,
+    280, 290, 300, 310, 320, 330, 340, 350
 };
-
-bool is_orthogonal_angle(int angle) {
-    int normalized = angle % 360;
-    if (normalized < 0) normalized += 360;
-
-    return normalized == 0 || normalized == 90 || normalized == 180 || normalized == 270;
-}
-
-bool is_diagonal_45_angle(int angle) {
-    int normalized = angle % 360;
-    if (normalized < 0) normalized += 360;
-
-    return normalized % 45 == 0 && !is_orthogonal_angle(normalized);
-}
-
-bool is_allowed_angle(int angle) {
-    int normalized = angle % 360;
-    if (normalized < 0) normalized += 360;
-
-    return normalized % 45 == 0;
-}
-
-vector<int> prioritized_angles(const vector<int>& angles_source) {
-    vector<int> orthogonal;
-    vector<int> fallback;
-
-    for (int angle : angles_source) {
-        if (!is_allowed_angle(angle)) continue;
-
-        if (is_orthogonal_angle(angle)) {
-            orthogonal.push_back(angle);
-        } else {
-            fallback.push_back(angle);
-        }
-    }
-
-    shuffle(orthogonal.begin(), orthogonal.end(), rng);
-    shuffle(fallback.begin(), fallback.end(), rng);
-
-    orthogonal.insert(orthogonal.end(), fallback.begin(), fallback.end());
-
-    return orthogonal;
-}
 
 // ================= GEOMETRY =================
 
@@ -789,8 +738,7 @@ bool add_bay(
     const vector<Obstacle>& obstacles,
     const vector<pair<double, double>>& ceiling,
     double wh_area,
-    int mode,
-    const vector<int>& angles_source = ANGLES
+    int mode
 ) {
     auto pts = candidate_points(warehouse, obstacles, sol);
 
@@ -811,7 +759,8 @@ bool add_bay(
         double y = pts[pi].y;
 
         for (auto& t : sorted_types) {
-            vector<int> angles = prioritized_angles(angles_source);
+            vector<int> angles = ANGLES;
+            shuffle(angles.begin(), angles.end(), rng);
 
             int limit = min(ANGLE_SAMPLE, (int)angles.size());
 
@@ -917,7 +866,8 @@ void upgrade_bay(
     bool found = false;
 
     for (auto& t : types) {
-        vector<int> angles = prioritized_angles(ANGLES);
+        vector<int> angles = ANGLES;
+        shuffle(angles.begin(), angles.end(), rng);
 
         int limit = min(ANGLE_SAMPLE, (int)angles.size());
 
@@ -978,245 +928,6 @@ void replace_bay(
     }
 }
 
-Point angle_width_axis(int angle) {
-    const Trig& trig = trig_for_angle(angle);
-    return {trig.cos_v, trig.sin_v};
-}
-
-Point angle_depth_axis(int angle) {
-    const Trig& trig = trig_for_angle(angle);
-    return {-trig.sin_v, trig.cos_v};
-}
-
-bool valid_placed_bay_at(
-    const PlacedBay& bay,
-    const vector<PlacedBay>& sol,
-    const vector<Point>& warehouse,
-    const vector<Obstacle>& obstacles,
-    const vector<pair<double, double>>& ceiling,
-    int ignore
-) {
-    return valid_candidate(
-        bay.x,
-        bay.y,
-        bay.w,
-        bay.d,
-        bay.h,
-        bay.gap,
-        bay.angle,
-        sol,
-        warehouse,
-        obstacles,
-        ceiling,
-        ignore
-    );
-}
-
-bool valid_slide_distance(
-    const vector<PlacedBay>& sol,
-    int idx,
-    Point dir,
-    double dist,
-    const vector<Point>& warehouse,
-    const vector<Obstacle>& obstacles,
-    const vector<pair<double, double>>& ceiling
-) {
-    PlacedBay moved = sol[idx];
-    moved.x += dir.x * dist;
-    moved.y += dir.y * dist;
-
-    return valid_placed_bay_at(moved, sol, warehouse, obstacles, ceiling, idx);
-}
-
-double max_touching_slide_distance(
-    const vector<PlacedBay>& sol,
-    int idx,
-    Point dir,
-    const vector<Point>& warehouse,
-    const vector<Obstacle>& obstacles,
-    const vector<pair<double, double>>& ceiling
-) {
-    double lo = 0.0;
-    double hi = DIAGONAL_COMPACT_MIN_SHIFT;
-
-    while (
-        hi < DIAGONAL_COMPACT_MAX_SHIFT &&
-        valid_slide_distance(sol, idx, dir, hi, warehouse, obstacles, ceiling)
-    ) {
-        lo = hi;
-        hi *= 2.0;
-    }
-
-    if (hi >= DIAGONAL_COMPACT_MAX_SHIFT &&
-        valid_slide_distance(sol, idx, dir, DIAGONAL_COMPACT_MAX_SHIFT, warehouse, obstacles, ceiling)) {
-        return 0.0;
-    }
-
-    hi = min(hi, DIAGONAL_COMPACT_MAX_SHIFT);
-
-    for (int it = 0; it < DIAGONAL_COMPACT_BINARY_ITERS; it++) {
-        double mid = (lo + hi) / 2.0;
-
-        if (valid_slide_distance(sol, idx, dir, mid, warehouse, obstacles, ceiling)) {
-            lo = mid;
-        } else {
-            hi = mid;
-        }
-    }
-
-    if (lo < DIAGONAL_COMPACT_MIN_SHIFT) {
-        return 0.0;
-    }
-
-    return lo;
-}
-
-bool compact_diagonal_bays_on_axes(
-    vector<PlacedBay>& sol,
-    const vector<Point>& warehouse,
-    const vector<Obstacle>& obstacles,
-    const vector<pair<double, double>>& ceiling
-) {
-    if (sol.empty()) return false;
-
-    bool changed = false;
-    vector<int> order(sol.size());
-    iota(order.begin(), order.end(), 0);
-    shuffle(order.begin(), order.end(), rng);
-
-    int processed = 0;
-
-    for (int idx : order) {
-        if (!is_diagonal_45_angle(sol[idx].angle)) continue;
-        if (processed >= DIAGONAL_COMPACT_MAX_BAYS) break;
-        processed++;
-
-        Point u = angle_width_axis(sol[idx].angle);
-        Point v = angle_depth_axis(sol[idx].angle);
-
-        vector<Point> dirs = {
-            u,
-            {-u.x, -u.y},
-            v,
-            {-v.x, -v.y}
-        };
-
-        shuffle(dirs.begin(), dirs.end(), rng);
-
-        double best_dist = 0.0;
-        Point best_dir = {0, 0};
-
-        for (Point dir : dirs) {
-            double dist = max_touching_slide_distance(sol, idx, dir, warehouse, obstacles, ceiling);
-
-            if (dist > best_dist) {
-                best_dist = dist;
-                best_dir = dir;
-            }
-        }
-
-        if (best_dist > 0.0) {
-            sol[idx].x += best_dir.x * best_dist;
-            sol[idx].y += best_dir.y * best_dist;
-            changed = true;
-        }
-    }
-
-    return changed;
-}
-
-bool add_shared_gap_bay(
-    vector<PlacedBay>& sol,
-    const vector<BayType>& types,
-    const vector<Point>& warehouse,
-    const vector<Obstacle>& obstacles,
-    const vector<pair<double, double>>& ceiling,
-    double wh_area,
-    int mode
-) {
-    if (sol.empty()) return false;
-
-    vector<int> anchors(sol.size());
-    iota(anchors.begin(), anchors.end(), 0);
-    shuffle(anchors.begin(), anchors.end(), rng);
-
-    if ((int)anchors.size() > SHARED_GAP_MAX_ANCHORS) {
-        anchors.resize(SHARED_GAP_MAX_ANCHORS);
-    }
-
-    vector<BayType> sorted_types = types;
-
-    sort(sorted_types.begin(), sorted_types.end(), [&](const BayType& a, const BayType& b) {
-        return bay_score_mode(a, mode, wh_area) > bay_score_mode(b, mode, wh_area);
-    });
-
-    PlacedBay best;
-    bool found = false;
-    double best_q = 1e100;
-
-    for (int idx : anchors) {
-        PlacedBay anchor = sol[idx];
-
-        if (anchor.gap <= 0) continue;
-
-        Point u = angle_width_axis(anchor.angle);
-        Point v = angle_depth_axis(anchor.angle);
-
-        for (auto& t : sorted_types) {
-            if (t.gap <= 0) continue;
-
-            int angle = (anchor.angle + 180) % 360;
-            double depth_offset = anchor.d + anchor.gap + t.d;
-
-            vector<double> lateral_offsets = {
-                (double)t.w,
-                (double)anchor.w,
-                ((double)anchor.w + t.w) / 2.0
-            };
-
-            shuffle(lateral_offsets.begin(), lateral_offsets.end(), rng);
-
-            for (double lateral_offset : lateral_offsets) {
-                double x = anchor.x + lateral_offset * u.x + depth_offset * v.x;
-                double y = anchor.y + lateral_offset * u.y + depth_offset * v.y;
-
-                if (!valid_candidate(
-                        x,
-                        y,
-                        t.w,
-                        t.d,
-                        t.h,
-                        t.gap,
-                        angle,
-                        sol,
-                        warehouse,
-                        obstacles,
-                        ceiling
-                    )) {
-                    continue;
-                }
-
-                PlacedBay candidate = make_candidate(t, x, y, angle);
-
-                sol.push_back(candidate);
-                double q = quality(sol, wh_area);
-                sol.pop_back();
-
-                if (q < best_q) {
-                    best_q = q;
-                    best = candidate;
-                    found = true;
-                }
-            }
-        }
-    }
-
-    if (!found) return false;
-
-    sol.push_back(best);
-    return true;
-}
-
 void shared_gap_refill(
     vector<PlacedBay>& sol,
     const vector<BayType>& types,
@@ -1237,126 +948,24 @@ void shared_gap_refill(
         sol.erase(sol.begin() + idx);
     }
 
-    static const vector<int> shared_angles = {
+    vector<int> old_angles = ANGLES;
+
+    ANGLES = {
         0, 180,
         90, 270,
-        45, 225,
-        135, 315
+        10, 190,
+        80, 260,
+        100, 280,
+        170, 350
     };
 
     for (int i = 0; i < k + 5; i++) {
-        if (!add_shared_gap_bay(sol, types, warehouse, obstacles, ceiling, wh_area, mode)) {
-            add_bay(sol, types, warehouse, obstacles, ceiling, wh_area, mode, shared_angles);
-        }
+        add_bay(sol, types, warehouse, obstacles, ceiling, wh_area, mode);
     }
+
+    ANGLES = old_angles;
 
     if (quality(sol, wh_area) > quality(backup, wh_area)) {
-        sol = backup;
-    }
-}
-
-void rotate_compact_and_add(
-    vector<PlacedBay>& sol,
-    const vector<BayType>& types,
-    const vector<Point>& warehouse,
-    const vector<Obstacle>& obstacles,
-    const vector<pair<double, double>>& ceiling,
-    double wh_area,
-    int mode
-) {
-    if (sol.empty()) return;
-
-    vector<PlacedBay> backup = sol;
-    double backup_q = quality(backup, wh_area);
-
-    vector<int> order(sol.size());
-    iota(order.begin(), order.end(), 0);
-    shuffle(order.begin(), order.end(), rng);
-
-    int attempts = min(4, (int)order.size());
-    vector<PlacedBay> best_sol = sol;
-    double best_q = backup_q;
-    bool found = false;
-
-    for (int oi = 0; oi < attempts; oi++) {
-        int idx = order[oi];
-        PlacedBay old = backup[idx];
-
-        vector<PlacedBay> base = backup;
-        base.erase(base.begin() + idx);
-
-        vector<int> angles = prioritized_angles(ANGLES);
-        int limit = angles.size();
-
-        for (int ai = 0; ai < limit; ai++) {
-            int angle = angles[ai];
-            if (angle == old.angle) continue;
-
-            if (!valid_candidate(
-                    old.x,
-                    old.y,
-                    old.w,
-                    old.d,
-                    old.h,
-                    old.gap,
-                    angle,
-                    base,
-                    warehouse,
-                    obstacles,
-                    ceiling
-                )) {
-                continue;
-            }
-
-            vector<PlacedBay> candidate = base;
-            PlacedBay rotated = old;
-            rotated.angle = angle;
-            candidate.push_back(rotated);
-
-            bool added = add_shared_gap_bay(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
-            if (!added) {
-                add_bay(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
-            }
-
-            double q = quality(candidate, wh_area);
-
-            if (q < best_q) {
-                best_q = q;
-                best_sol = candidate;
-                found = true;
-            }
-        }
-    }
-
-    if (found) {
-        sol = best_sol;
-    }
-}
-
-void add_45_degree_bay(
-    vector<PlacedBay>& sol,
-    const vector<BayType>& types,
-    const vector<Point>& warehouse,
-    const vector<Obstacle>& obstacles,
-    const vector<pair<double, double>>& ceiling,
-    double wh_area,
-    int mode
-) {
-    vector<PlacedBay> backup = sol;
-    double backup_q = quality(backup, wh_area);
-
-    static const vector<int> diagonal_angles = {45, 135, 225, 315};
-
-    compact_diagonal_bays_on_axes(sol, warehouse, obstacles, ceiling);
-
-    if (!add_bay(sol, types, warehouse, obstacles, ceiling, wh_area, mode, diagonal_angles)) {
-        sol = backup;
-        return;
-    }
-
-    compact_diagonal_bays_on_axes(sol, warehouse, obstacles, ceiling);
-
-    if (quality(sol, wh_area) > backup_q) {
         sol = backup;
     }
 }
@@ -1429,7 +1038,7 @@ vector<PlacedBay> hill(
     for (int it = 0; it < ITERATIONS; it++) {
         vector<PlacedBay> candidate = best;
 
-        const vector<int> active_ops = {3, 4, 5, 6,3, 4, 5, 6,3, 4, 5, 6,3, 4, 5, 6,3, 4, 5, 6,3, 4, 5, 6,3, 4, 5, 6,3, 4, 5, 6,3, 4, 5, 6,3, 4, 5, 6,3, 4, 5, 6, 7};
+        const vector<int> active_ops = {3, 4, 5};
         int op = active_ops[rng() % active_ops.size()];
         stats.tried[op]++;
 
@@ -1448,14 +1057,8 @@ vector<PlacedBay> hill(
         else if (op == 4) {
             shared_gap_refill(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
         }
-        else if (op == 5) {
-            upgrade_bay(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
-        }
-        else if (op == 6) {
-            rotate_compact_and_add(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
-        }
         else {
-            add_45_degree_bay(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
+            upgrade_bay(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
         }
 
         double q = quality(candidate, wh_area);
@@ -1473,7 +1076,7 @@ vector<PlacedBay> hill(
 void print_operator_stats(const string& case_dir, const OperatorStats& stats) {
     cout << "\nOperator stats for " << case_dir << ":\n";
 
-    for (int i = 0; i < NUM_OPERATORS; i++) {
+    for (int i = 0; i < 6; i++) {
         double rate = 0.0;
 
         if (stats.tried[i] > 0) {
@@ -1487,10 +1090,69 @@ void print_operator_stats(const string& case_dir, const OperatorStats& stats) {
     }
 }
 
-void solve_case(const string& case_dir) {
+string mode_name(int mode) {
+    if (mode == CHEAP_LOAD) return "CHEAP_LOAD";
+    if (mode == BIG_AREA) return "BIG_AREA";
+    if (mode == LOW_GAP) return "LOW_GAP";
+    return "BALANCED";
+}
+
+struct InitBenchStats {
+    double sum_q = 0;
+    double sum_q2 = 0;
+    double best_q = 1e100;
+    double worst_q = -1;
+    double sum_area = 0;
+    double sum_loads = 0;
+    double sum_price = 0;
+    double sum_bays = 0;
+    int valid_count = 0;
+};
+
+void add_bench_sample(
+    InitBenchStats& stats,
+    const vector<PlacedBay>& sol,
+    double wh_area
+) {
+    auto [area, loads, price, q] = details(sol, wh_area);
+
+    stats.sum_q += q;
+    stats.sum_q2 += q * q;
+    stats.best_q = min(stats.best_q, q);
+    stats.worst_q = max(stats.worst_q, q);
+    stats.sum_area += area;
+    stats.sum_loads += loads;
+    stats.sum_price += price;
+    stats.sum_bays += sol.size();
+    stats.valid_count++;
+}
+
+void print_bench_stats(const InitBenchStats& stats, int samples) {
+    if (stats.valid_count == 0) {
+        cout << "valid=0/" << samples << "\n";
+        return;
+    }
+
+    double n = stats.valid_count;
+    double avg_q = stats.sum_q / n;
+    double variance = max(0.0, stats.sum_q2 / n - avg_q * avg_q);
+
+    cout << "valid=" << stats.valid_count << "/" << samples
+         << " avg_q=" << avg_q
+         << " std_q=" << sqrt(variance)
+         << " best_q=" << stats.best_q
+         << " worst_q=" << stats.worst_q
+         << " avg_bays=" << stats.sum_bays / n
+         << " avg_area=" << stats.sum_area / n
+         << " avg_loads=" << stats.sum_loads / n
+         << " avg_price=" << stats.sum_price / n
+         << "\n";
+}
+
+void benchmark_case(const string& case_dir) {
     auto case_start = Clock::now();
 
-    cout << "\n=== Solving " << case_dir << " ===\n";
+    cout << "\n=== Initial mode + hill benchmark " << case_dir << " ===\n";
 
     auto warehouse = read_warehouse(case_dir + "/warehouse.csv");
     auto obstacles = read_obstacles(case_dir + "/obstacles.csv");
@@ -1506,96 +1168,66 @@ void solve_case(const string& case_dir) {
          << " available_area=" << wh_area
          << "\n";
 
-    auto worker = [&](int r) {
-        int mode = r % 4;
+    int best_mode = -1;
+    double best_avg_q = 1e100;
 
-        rng.seed(42 + r * 1000 + (int)case_dir[4]);
+    for (int mode = 0; mode < 4; mode++) {
+        InitBenchStats stats;
+        OperatorStats total_operator_stats;
 
-        cout << "Restart " << r + 1 << "/" << RESTARTS
-             << " started | mode=" << mode << "\n";
+        for (int restart = 0; restart < RESTARTS; restart++) {
+            rng.seed(100000 + (int)case_dir[4] * 1000 + mode * 100 + restart);
 
-        auto sol = build_initial(types, warehouse, obstacles, ceiling, wh_area, mode);
+            auto sol = build_initial(types, warehouse, obstacles, ceiling, wh_area, mode);
+            OperatorStats operator_stats;
 
-        OperatorStats stats;
+            sol = hill(sol, types, warehouse, obstacles, ceiling, wh_area, mode, operator_stats);
 
-        sol = hill(sol, types, warehouse, obstacles, ceiling, wh_area, mode, stats);
+            for (int i = 0; i < 6; i++) {
+                total_operator_stats.tried[i] += operator_stats.tried[i];
+                total_operator_stats.improved[i] += operator_stats.improved[i];
+            }
 
-        auto [af, lf, pf, qf] = details(sol, wh_area);
+            bool valid = is_valid_solution(sol, warehouse, obstacles, ceiling);
 
-        bool valid = is_valid_solution(sol, warehouse, obstacles, ceiling);
+            auto [area, loads, price, q] = details(sol, wh_area);
 
-        cout << "Restart " << r + 1
-             << " -> bays=" << sol.size()
-             << " area=" << af
-             << " loads=" << lf
-             << " price=" << pf
-             << " Q=" << qf
-             << " valid=" << valid
+            cout << mode_name(mode)
+                 << " restart=" << restart + 1 << "/" << RESTARTS
+                 << " bays=" << sol.size()
+                 << " area=" << area
+                 << " loads=" << loads
+                 << " price=" << price
+                 << " Q=" << q
+                 << " valid=" << valid
+                 << "\n";
+
+            if (valid) {
+                add_bench_sample(stats, sol, wh_area);
+            }
+        }
+
+        cout << mode_name(mode) << " | ";
+        print_bench_stats(stats, RESTARTS);
+        print_operator_stats(mode_name(mode), total_operator_stats);
+
+        if (stats.valid_count > 0) {
+            double avg_q = stats.sum_q / stats.valid_count;
+
+            if (avg_q < best_avg_q) {
+                best_avg_q = avg_q;
+                best_mode = mode;
+            }
+        }
+    }
+
+    if (best_mode >= 0) {
+        cout << "BEST_INIT_MODE " << case_dir
+             << " mode=" << mode_name(best_mode)
+             << " avg_q=" << best_avg_q
              << "\n";
-
-        return make_pair(sol, stats);
-    };
-
-    vector<future<pair<vector<PlacedBay>, OperatorStats>>> futures;
-
-    for (int r = 0; r < RESTARTS; r++) {
-        futures.push_back(async(launch::async, worker, r));
     }
 
-    vector<PlacedBay> best_global;
-    double best_global_q = 1e100;
-    OperatorStats total_stats;
-
-    for (int r = 0; r < RESTARTS; r++) {
-        auto result = futures[r].get();
-
-        vector<PlacedBay> sol = result.first;
-        OperatorStats stats = result.second;
-
-        for (int i = 0; i < NUM_OPERATORS; i++) {
-            total_stats.tried[i] += stats.tried[i];
-            total_stats.improved[i] += stats.improved[i];
-        }
-
-        auto [a, l, pr, q] = details(sol, wh_area);
-        bool valid = is_valid_solution(sol, warehouse, obstacles, ceiling);
-
-        if (valid && q < best_global_q) {
-            best_global = sol;
-            best_global_q = q;
-        }
-    }
-
-    if (!is_valid_solution(best_global, warehouse, obstacles, ceiling)) {
-        best_global.clear();
-    }
-
-    string out_path = case_dir + "/solution.csv";
-    ofstream out(out_path);
-
-    out << "Id,X,Y,Rotation\n";
-
-    for (auto& p : best_global) {
-        out << p.id << ","
-            << llround(p.x) << ","
-            << llround(p.y) << ","
-            << p.angle << "\n";
-    }
-
-    out.close();
-
-    auto [a, l, pr, q] = details(best_global, wh_area);
-
-    cout << "BEST " << case_dir << "\n";
-    cout << "bays=" << best_global.size()
-         << " area=" << a
-         << " loads=" << l
-         << " price=" << pr
-         << " Q=" << q << "\n";
-
-    print_operator_stats(case_dir, total_stats);
-
-    cout << "Written: " << out_path << "\n";
     cout << "[time] " << case_dir << " elapsed=" << seconds_since(case_start) << "s\n";
 }
 
@@ -1606,7 +1238,7 @@ int main() {
         ifstream f(c + "/warehouse.csv");
 
         if (f.good()) {
-            solve_case(c);
+            benchmark_case(c);
         } else {
             cout << "Skipping " << c << "\n";
         }

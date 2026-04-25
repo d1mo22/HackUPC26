@@ -1,13 +1,53 @@
 import { useState } from 'react'
 import { Circle, CheckCircle, Loader2, XCircle } from 'lucide-react'
+import FileLoader, { type RawFiles } from './components/FileLoader'
+import MetricsPanel from './components/MetricsPanel'
+import BayLegend from './components/BayLegend'
+import Controls from './components/Controls'
 import type { WarehouseCase, Solution } from './types'
 
+const MOCK_CASE: WarehouseCase = {
+  polygon: [{ x: 0, y: 0 }, { x: 10000, y: 0 }, { x: 10000, y: 10000 }, { x: 0, y: 10000 }],
+  obstacles: [],
+  ceiling: [{ x: 0, h: 3000 }],
+  bayTypes: [
+    { id: 0, w: 800,  d: 1200, h: 2800, gap: 200, loads: 4,  price: 2000 },
+    { id: 1, w: 1600, d: 1200, h: 2800, gap: 200, loads: 8,  price: 2500 },
+    { id: 5, w: 2400, d: 1000, h: 1800, gap: 150, loads: 9,  price: 2600 },
+    { id: 3, w: 800,  d: 1000, h: 1800, gap: 150, loads: 3,  price: 1800 },
+  ],
+}
+
+const MOCK_SOLUTION: Solution = {
+  placements: [
+    { id: 5, x: 1700, y: 4200, rotation: 1 },
+    { id: 5, x: 1700, y: 6600, rotation: 1 },
+    { id: 3, x: 1700, y: 9000, rotation: 1 },
+    { id: 1, x: 1500, y: 750,  rotation: 1 },
+    { id: 0, x: 1500, y: 3150, rotation: 1 },
+    { id: 5, x: 2900, y: 750,  rotation: 0 },
+    { id: 3, x: 2900, y: 1900, rotation: 1 },
+    { id: 3, x: 4050, y: 1900, rotation: 1 },
+    { id: 5, x: 5300, y: 750,  rotation: 0 },
+    { id: 3, x: 5300, y: 1900, rotation: 1 },
+    { id: 3, x: 6450, y: 1900, rotation: 1 },
+    { id: 1, x: 7700, y: 750,  rotation: 0 },
+  ],
+}
+
 export default function App() {
-  const [warehouseCase, setWarehouseCase] = useState<WarehouseCase | null>(null)
-  const [solution, setSolution] = useState<Solution | null>(null)
+  const [warehouseCase, setWarehouseCase] = useState<WarehouseCase | null>(MOCK_CASE)
+  const [rawFiles, setRawFiles] = useState<RawFiles | null>(null)
+  const [solution, setSolution] = useState<Solution | null>(MOCK_SOLUTION)
   const [isRunning, setIsRunning] = useState(false)
   const [showCeiling, setShowCeiling] = useState(false)
   const [showLabels, setShowLabels] = useState(true)
+
+  function handleCaseLoaded(wc: WarehouseCase, files: RawFiles) {
+    setWarehouseCase(wc)
+    setRawFiles(files)
+    setSolution(null)
+  }
 
   const status: 'idle' | 'ready' | 'running' | 'error' =
     isRunning ? 'running' : warehouseCase ? 'ready' : 'idle'
@@ -34,33 +74,22 @@ export default function App() {
           className="flex flex-col shrink-0 overflow-y-auto"
           style={{ width: 260, background: 'var(--color-card)', borderRight: '1px solid var(--color-border)' }}
         >
-          {/* FileLoader will go here — T4 */}
-          <div className="flex-1 flex items-center justify-center p-4">
-            <span style={{ color: 'var(--color-muted)', fontSize: 13 }}>Load CSVs (T4)</span>
+          <div style={{ flex: 1, overflowY: 'auto' }}>
+            <FileLoader
+              onCaseLoaded={handleCaseLoaded}
+              onSolutionLoaded={(s) => setSolution(s)}
+            />
           </div>
 
-          {/* Controls — T13 */}
-          <div style={{ padding: 16, flexShrink: 0, borderTop: '1px solid var(--color-border)' }}>
-            <button
-              disabled={!warehouseCase || isRunning}
-              style={{
-                width: '100%',
-                padding: '8px 0',
-                borderRadius: 6,
-                border: 'none',
-                fontFamily: 'var(--font-ui)',
-                fontSize: 14,
-                fontWeight: 500,
-                transition: 'opacity 0.15s, background 0.15s',
-                background: warehouseCase && !isRunning ? 'var(--color-accent)' : 'var(--color-border)',
-                color: warehouseCase && !isRunning ? '#000' : 'var(--color-muted)',
-                cursor: warehouseCase && !isRunning ? 'pointer' : 'not-allowed',
-                opacity: !warehouseCase && !isRunning ? 0.5 : 1,
-              }}
-            >
-              {isRunning ? 'Running…' : 'Run Solver'}
-            </button>
-          </div>
+          <Controls
+            isReady={!!warehouseCase}
+            isRunning={isRunning}
+            showCeiling={showCeiling}
+            showLabels={showLabels}
+            onRun={() => {}}
+            onToggleCeiling={() => setShowCeiling(v => !v)}
+            onToggleLabels={() => setShowLabels(v => !v)}
+          />
         </aside>
 
         {/* Canvas center */}
@@ -81,11 +110,11 @@ export default function App() {
           className="flex flex-col shrink-0 overflow-y-auto"
           style={{ width: 280, background: 'var(--color-card)', borderLeft: '1px solid var(--color-border)' }}
         >
-          <div style={{ padding: '16px', borderBottom: '1px solid var(--color-border)' }}>
-            <span style={{ color: 'var(--color-muted)', fontSize: 13 }}>Metrics (T11)</span>
+          <div style={{ borderBottom: '1px solid var(--color-border)' }}>
+            <MetricsPanel solution={solution} warehouseCase={warehouseCase} />
           </div>
-          <div style={{ padding: '16px', flex: 1 }}>
-            <span style={{ color: 'var(--color-muted)', fontSize: 13 }}>Legend (T12)</span>
+          <div style={{ flex: 1, overflowY: 'auto' }}>
+            <BayLegend solution={solution} warehouseCase={warehouseCase} />
           </div>
         </aside>
 

@@ -2,9 +2,9 @@ import type { BayType, CeilingSegment, PlacedBay, Point } from '../types'
 
 /** Effective width/depth of a placed bay after applying rotation */
 export function bayDimensions(bay: PlacedBay, type: BayType): { w: number; d: number } {
-  return bay.rotation === 0
-    ? { w: type.w, d: type.d }
-    : { w: type.d, d: type.w }
+  return (bay.rotation === 90 || bay.rotation === 270)
+    ? { w: type.d, d: type.w }
+    : { w: type.w, d: type.d }
 }
 
 /** Minimum ceiling height over the x-range [x1, x2) */

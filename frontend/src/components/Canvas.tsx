@@ -54,63 +54,33 @@ function draw2D(
   ctx.lineWidth = 1.5
   ctx.stroke()
 
-  // Ceiling overlay
+  // Ceiling overlay — column tint clipped to warehouse polygon (darker = lower ceiling)
   if (showCeiling && ceiling.length > 0) {
     const sorted = [...ceiling].sort((a, b) => a.x - b.x)
     const maxH = Math.max(...sorted.map(s => s.h))
-    const minH = Math.min(...sorted.map(s => s.h))
+
+    ctx.save()
+    // Clip to warehouse polygon so tint doesn't bleed outside
+    ctx.beginPath()
+    for (let i = 0; i < polygon.length; i++) {
+      const p = w2s(polygon[i].x, polygon[i].y, t)
+      if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y)
+    }
+    ctx.closePath()
+    ctx.clip()
 
     for (let i = 0; i < sorted.length; i++) {
       const seg = sorted[i]
       const nextX = i + 1 < sorted.length ? sorted[i + 1].x : bounds.maxX
       const alpha = (1 - seg.h / maxH) * 0.38
       ctx.fillStyle = `rgba(0,0,0,${alpha.toFixed(3)})`
-      ctx.fillRect(t.offsetX + seg.x * t.scale, 0, (nextX - seg.x) * t.scale, H)
+      const topY = t.offsetY - bounds.maxY * t.scale
+      ctx.fillRect(t.offsetX + seg.x * t.scale, topY, (nextX - seg.x) * t.scale, H - topY)
     }
 
-    ctx.beginPath()
-    for (let i = 0; i < sorted.length; i++) {
-      const seg = sorted[i]
-      const nextX = i + 1 < sorted.length ? sorted[i + 1].x : bounds.maxX
-      const sx = t.offsetX + seg.x * t.scale
-      const ex = t.offsetX + nextX * t.scale
-      const sy = t.offsetY - seg.h * t.scale
-      if (i === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy)
-      ctx.lineTo(ex, sy)
-    }
-    ctx.lineTo(t.offsetX + bounds.maxX * t.scale, 0)
-    ctx.lineTo(t.offsetX + sorted[0].x * t.scale, 0)
-    ctx.closePath()
-    ctx.fillStyle = 'rgba(239,68,68,0.07)'
-    ctx.fill()
-
-    ctx.strokeStyle = '#ef4444'
-    ctx.lineWidth = 1.5
-    ctx.setLineDash([])
-    ctx.beginPath()
-    for (let i = 0; i < sorted.length; i++) {
-      const seg = sorted[i]
-      const nextX = i + 1 < sorted.length ? sorted[i + 1].x : bounds.maxX
-      const sx = t.offsetX + seg.x * t.scale
-      const ex = t.offsetX + nextX * t.scale
-      const sy = t.offsetY - seg.h * t.scale
-      if (i === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy)
-      ctx.lineTo(ex, sy)
-    }
-    ctx.stroke()
-
-    for (let i = 0; i < sorted.length; i++) {
-      const seg = sorted[i]
-      const nextX = i + 1 < sorted.length ? sorted[i + 1].x : bounds.maxX
-      const color = seg.h >= maxH ? '#22c55e' : seg.h <= minH ? '#ef4444' : '#eab308'
-      const lx = t.offsetX + (seg.x + (nextX - seg.x) / 2) * t.scale
-      ctx.fillStyle = color
-      ctx.font = '8px monospace'
-      ctx.textAlign = 'center'
-      ctx.textBaseline = 'top'
-      ctx.fillText(`${seg.h}mm`, lx, 6)
-    }
+    ctx.restore()
   }
+      ctx.textBaseline = 'top'
 
   // Obstacles
   for (const obs of obstacles) {
@@ -153,27 +123,33 @@ function draw2D(
     ctx.strokeRect(sx, sy, sw, sh)
 
     if (showGaps && type.gap > 0) {
+      const gsize = type.gap * t.scale
+      ctx.fillStyle = color + '1f'
+      ctx.strokeStyle = color + '8c'
+      ctx.lineWidth = 0.8
+      ctx.setLineDash([3, 2])
       if (p.rotation === 0) {
+        // gap above (+Y)
         const gy = t.offsetY - (p.y + dims.d + type.gap) * t.scale
-        const gh = type.gap * t.scale
-        ctx.fillStyle = color + '1f'
-        ctx.fillRect(sx, gy, sw, gh)
-        ctx.strokeStyle = color + '8c'
-        ctx.lineWidth = 0.8
-        ctx.setLineDash([3, 2])
-        ctx.strokeRect(sx, gy, sw, gh)
-        ctx.setLineDash([])
+        ctx.fillRect(sx, gy, sw, gsize)
+        ctx.strokeRect(sx, gy, sw, gsize)
+      } else if (p.rotation === 90) {
+        // gap to the left (-X)
+        const gx = t.offsetX + (p.x - type.gap) * t.scale
+        ctx.fillRect(gx, sy, gsize, sh)
+        ctx.strokeRect(gx, sy, gsize, sh)
+      } else if (p.rotation === 180) {
+        // gap below (-Y)
+        const gy = t.offsetY - p.y * t.scale
+        ctx.fillRect(sx, gy, sw, gsize)
+        ctx.strokeRect(sx, gy, sw, gsize)
       } else {
+        // rotation === 270: gap to the right (+X)
         const gx = t.offsetX + (p.x + dims.w) * t.scale
-        const gw = type.gap * t.scale
-        ctx.fillStyle = color + '1f'
-        ctx.fillRect(gx, sy, gw, sh)
-        ctx.strokeStyle = color + '8c'
-        ctx.lineWidth = 0.8
-        ctx.setLineDash([3, 2])
-        ctx.strokeRect(gx, sy, gw, sh)
-        ctx.setLineDash([])
+        ctx.fillRect(gx, sy, gsize, sh)
+        ctx.strokeRect(gx, sy, gsize, sh)
       }
+      ctx.setLineDash([])
     }
 
     if (showLabels && sw >= 12 && sh >= 12) {

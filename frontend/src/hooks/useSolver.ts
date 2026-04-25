@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import { parseSolution } from '../lib/csvParser'
 import type { RawFiles } from '../components/FileLoader'
-import type { Solution } from '../types'
+import type { BayType, Solution } from '../types'
 
 export function useSolver() {
   const [isRunning, setIsRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  async function run(rawFiles: RawFiles): Promise<Solution | null> {
+  async function run(rawFiles: RawFiles, bayTypes?: BayType[]): Promise<Solution | null> {
     setIsRunning(true)
     setError(null)
 
@@ -28,7 +28,7 @@ export function useSolver() {
       const csv = await res.text()
       const blob = new Blob([csv], { type: 'text/csv' })
       const file = new File([blob], 'solution.csv')
-      const placements = await parseSolution(file)
+      const placements = await parseSolution(file, bayTypes)
 
       return { placements }
     } catch (e) {

@@ -1,5 +1,5 @@
 import type { BayType, PlacedBay, Point } from '../types'
-import { bayDimensions, polygonBounds } from './geometry'
+import { bayDimensions } from './geometry'
 
 export interface Metrics {
   q: number
@@ -37,8 +37,14 @@ export function computeMetrics(
 
   let priceLoad = sumPrice / sumLoad
 
-  const bounds = polygonBounds(polygon)
-  const areaWarehouse = (bounds.maxX - bounds.minX) * (bounds.maxY - bounds.minY)
+  // Shoelace formula for the actual polygon area
+  let areaWarehouse = 0
+  for (let i = 0; i < polygon.length; i++) {
+    const j = (i + 1) % polygon.length
+    areaWarehouse += polygon[i].x * polygon[j].y
+    areaWarehouse -= polygon[j].x * polygon[i].y
+  }
+  areaWarehouse = Math.abs(areaWarehouse) / 2
   const ratio = areaCovered / areaWarehouse
   const q = placements.length > 0 ? Math.pow(priceLoad, 2 - ratio) : 0
 

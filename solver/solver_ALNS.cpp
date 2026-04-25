@@ -943,6 +943,9 @@ Solution alns_core(
             repair_randomized(cand, types, warehouse, obstacles, ceiling, wh_area,
                               k + repair_extra, rng, max_pts_add, angle_sample, intensify_bias, interior_grid);
         } else {
+            // type_swap: first greedily restore destroyed bays, then swap types
+            repair_greedy(cand, types, warehouse, obstacles, ceiling, wh_area,
+                          k + repair_extra, rng, max_pts_add, angle_sample, intensify_bias, interior_grid);
             type_swap_pass(cand, types, warehouse, obstacles, ceiling, wh_area, rng);
         }
 

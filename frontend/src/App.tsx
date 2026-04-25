@@ -239,10 +239,10 @@ export default function App() {
 
 function StatusBadge({ status }: { status: 'idle' | 'ready' | 'running' | 'error' }) {
   const config = {
-    idle:    { label: 'No data',  color: 'var(--color-muted)',       bg: 'rgba(148,163,184,0.1)', Icon: Circle },
-    ready:   { label: 'Ready',    color: 'var(--color-accent)',      bg: 'rgba(34,197,94,0.1)',   Icon: CheckCircle },
-    running: { label: 'Running…', color: '#FBBF24',                  bg: 'rgba(251,191,36,0.1)',  Icon: Loader2 },
-    error:   { label: 'Error',    color: 'var(--color-destructive)', bg: 'rgba(239,68,68,0.1)',   Icon: XCircle },
+    idle: { label: 'No data', color: 'var(--color-muted)', bg: 'rgba(148,163,184,0.1)', Icon: Circle },
+    ready: { label: 'Ready', color: 'var(--color-accent)', bg: 'rgba(34,197,94,0.1)', Icon: CheckCircle },
+    running: { label: 'Running…', color: '#FBBF24', bg: 'rgba(251,191,36,0.1)', Icon: Loader2 },
+    error: { label: 'Error', color: 'var(--color-destructive)', bg: 'rgba(239,68,68,0.1)', Icon: XCircle },
   }[status]
 
   const { Icon } = config

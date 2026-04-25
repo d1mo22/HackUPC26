@@ -838,6 +838,48 @@ void repair_randomized(
     }
 }
 
+static bool type_swap_pass(
+    Solution& sol,
+    const vector<BayType>& types,
+    const vector<Point>& warehouse,
+    const vector<Obstacle>& obstacles,
+    const vector<pair<double,double>>& ceiling,
+    double wh_area,
+    mt19937& rng)
+{
+    if (sol.empty()) return false;
+    bool improved = false;
+
+    vector<int> order(sol.size());
+    iota(order.begin(), order.end(), 0);
+    shuffle(order.begin(), order.end(), rng);
+
+    for (int idx : order) {
+        PlacedBay cur = sol[idx];
+        sol.erase_at(idx);
+
+        PlacedBay best = cur;
+        double best_q = q_after_add(sol,
+            (double)cur.price/max(1,cur.loads), (double)cur.w*cur.d, wh_area);
+
+        for (auto& t : types) {
+            if (t.id == cur.id) continue;
+            if (!valid_candidate(cur.x, cur.y, t.w, t.d, t.h, t.gap, cur.angle,
+                                 sol.bays, warehouse, obstacles, ceiling)) continue;
+            double dpl   = (double)t.price / max(1, t.loads);
+            double darea = (double)t.w * t.d;
+            double q = q_after_add(sol, dpl, darea, wh_area);
+            if (q + EPS < best_q) {
+                best_q = q;
+                best = make_candidate(t, cur.x, cur.y, cur.angle);
+                improved = true;
+            }
+        }
+        sol.push(best);
+    }
+    return improved;
+}
+
 // ─────────────────────────────────────────────
 //  ALNS CORE
 // ─────────────────────────────────────────────
@@ -873,8 +915,8 @@ Solution alns_core(
 
     // destroy weights: guided, random, worst
     vector<double> destroy_weights = {10.0, 10.0, 10.0};
-    // repair weights: greedy, randomized
-    vector<double> repair_weights = {10.0, 10.0};
+    // repair weights: greedy, randomized, type_swap
+    vector<double> repair_weights = {10.0, 10.0, 5.0};
 
     const double decay = 0.85;
 
@@ -897,9 +939,11 @@ Solution alns_core(
         if (r_idx == 0) {
             repair_greedy(cand, types, warehouse, obstacles, ceiling, wh_area,
                           k + repair_extra, rng, max_pts_add, angle_sample, intensify_bias, interior_grid);
-        } else {
+        } else if (r_idx == 1) {
             repair_randomized(cand, types, warehouse, obstacles, ceiling, wh_area,
                               k + repair_extra, rng, max_pts_add, angle_sample, intensify_bias, interior_grid);
+        } else {
+            type_swap_pass(cand, types, warehouse, obstacles, ceiling, wh_area, rng);
         }
 
         double q = q_now(cand, wh_area);

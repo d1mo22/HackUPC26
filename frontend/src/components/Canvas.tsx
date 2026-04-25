@@ -283,13 +283,13 @@ export default function Canvas({
   // Draw (2D only — 3D is rendered by Canvas3D overlay)
   useEffect(() => {
     const canvas = canvasRef.current
-    if (!canvas || canvasSize.w === 0 || viewMode === '3d') return
+    if (!canvas || canvasSize.w === 0) return
     const dpr = window.devicePixelRatio || 1
     const ctx = canvas.getContext('2d')!
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.clearRect(0, 0, canvasSize.w, canvasSize.h)
 
-    if (!polygon) return
+    if (!polygon || viewMode === '3d') return
 
     // Read CSS theme variables for canvas drawing
     const style = getComputedStyle(document.documentElement)

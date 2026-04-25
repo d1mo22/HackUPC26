@@ -1178,16 +1178,20 @@ void solve_case(const string& case_dir) {
     cout << "[time] " << case_dir << " elapsed=" << seconds_since(case_start) << "s\n";
 }
 
-int main() {
+int main(int argc, char* argv[]) {
     auto total_start = Clock::now();
 
-    for (auto& c : CASES) {
-        ifstream f(c + "/warehouse.csv");
+    if (argc >= 2) {
+        solve_case(argv[1]);
+    } else {
+        for (auto& c : CASES) {
+            ifstream f(c + "/warehouse.csv");
 
-        if (f.good()) {
-            solve_case(c);
-        } else {
-            cout << "Skipping " << c << "\n";
+            if (f.good()) {
+                solve_case(c);
+            } else {
+                cout << "Skipping " << c << "\n";
+            }
         }
     }
 

@@ -66,7 +66,7 @@ const ERROR_HINTS: Record<SlotKey, string> = {
   types:     'Expected: id, w, d, h, gap, loads, price',
 }
 
-export default function FileLoader({ onCaseLoaded, onSolutionLoaded, onPartialLoad, bayTypes }: Props) {
+export default function FileLoader({ onCaseLoaded, onSolutionLoaded, onPartialLoad, onClear, bayTypes }: Props) {
   const [slots, setSlots] = useState<Record<SlotKey, FileSlotState>>({
     warehouse: { file: null, error: null, loading: false },
     obstacles: { file: null, error: null, loading: false },
@@ -137,25 +137,17 @@ export default function FileLoader({ onCaseLoaded, onSolutionLoaded, onPartialLo
 
   async function handleFolderInput(files: FileList) {
     const matched: Partial<Record<SlotKey, File>> = {}
-    let solutionFile: File | null = null
 
     for (const file of Array.from(files)) {
       const name = file.name.toLowerCase()
       const slot = FILENAME_TO_SLOT[name]
       if (slot) matched[slot] = file
-      else if (name === 'solution.csv') solutionFile = file
     }
 
     // Load all matched slot files in parallel
     await Promise.all(
       (Object.entries(matched) as [SlotKey, File][]).map(([key, file]) => handleFile(key, file))
     )
-
-    // Load solution only if all 4 required files were found in the folder
-    const allFound = SLOTS.every(({ key }) => !!matched[key])
-    if (allFound && solutionFile) {
-      await handleSolutionFile(solutionFile)
-    }
   }
 
   function handleClear() {
@@ -169,6 +161,7 @@ export default function FileLoader({ onCaseLoaded, onSolutionLoaded, onPartialLo
     loadedFilesRef.current = {}
     internalBayTypesRef.current = null
     if (folderInputRef.current) folderInputRef.current.value = ''
+    onClear()
   }
 
   return (

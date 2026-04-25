@@ -30,7 +30,6 @@ export default function RightPanel({ solution, warehouseCase, bayTypes, runHisto
 
   function handleRestore(sol: Solution, id: number) {
     onRestore(sol, id)
-    setActiveTab('metrics')
   }
 
   return (

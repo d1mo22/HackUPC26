@@ -9,12 +9,8 @@ import type { Point, Obstacle, CeilingSegment, BayType, PlacedBay } from '../typ
 
 const S = 0.001  // mm → three.js units
 
-function hexToThree(hex: string): THREE.Color {
-  return new THREE.Color(
-    parseInt(hex.slice(1, 3), 16) / 255,
-    parseInt(hex.slice(3, 5), 16) / 255,
-    parseInt(hex.slice(5, 7), 16) / 255,
-  )
+function hexToThree(color: string): THREE.Color {
+  return new THREE.Color(color)
 }
 
 // Warehouse floor as a filled polygon
@@ -207,8 +203,8 @@ function CeilingPlanes({ ceiling, polygon }: { ceiling: CeilingSegment[]; polygo
   )
 }
 
-// Auto-position camera to fit warehouse, pivot OrbitControls at warehouse centre
-function AutoCamera({ polygon }: { polygon: Point[] }) {
+// Auto-position camera to fit warehouse, pivot OrbitControls at bounding box centre
+function AutoCamera({ polygon, maxH }: { polygon: Point[]; maxH: number }) {
   const { camera, controls } = useThree()
   const fitted = useRef(false)
 
@@ -217,20 +213,18 @@ function AutoCamera({ polygon }: { polygon: Point[] }) {
   useEffect(() => {
     if (fitted.current) return
     const bounds = polygonBounds(polygon)
-    const cx = ((bounds.minX + bounds.maxX) / 2) * S
-    const cz = -((bounds.minY + bounds.maxY) / 2) * S
     const span = Math.max(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY) * S
-    const target = new THREE.Vector3(cx, 0, cz)
-    camera.position.set(cx + span * 0.8, span * 0.9, cz + span * 0.8)
+    const cy = (maxH / 2) * S
+    const target = new THREE.Vector3(0, cy, 0)
+    camera.position.set(span * 0.7, cy + span * 0.8, span * 0.7)
     camera.lookAt(target)
     camera.updateProjectionMatrix()
-    // Set OrbitControls target so rotation pivots at the warehouse centre
     if (controls) {
       (controls as unknown as OrbitControlsImpl).target.copy(target);
       (controls as unknown as OrbitControlsImpl).update()
     }
     fitted.current = true
-  }, [polygon, camera, controls])
+  }, [polygon, maxH, camera, controls])
 
   return null
 }
@@ -259,6 +253,11 @@ export default function Canvas3D({
     ? Math.max(...ceiling.map(s => s.h))
     : 3000
 
+  const bounds = polygonBounds(polygon)
+  // Centre the scene so (0,0,0) is the horizontal midpoint of the warehouse
+  const ox = -((bounds.minX + bounds.maxX) / 2) * S
+  const oz =  ((bounds.minY + bounds.maxY) / 2) * S
+
   return (
     <Canvas
       style={{ background: '#020617', width: '100%', height: '100%' }}
@@ -268,24 +267,26 @@ export default function Canvas3D({
       <ambientLight intensity={1.4} />
       <directionalLight position={[5, 10, 5]} intensity={0.6} />
 
-      <AutoCamera polygon={polygon} />
+      <AutoCamera polygon={polygon} maxH={maxCeilH} />
       <OrbitControls makeDefault enableDamping dampingFactor={0.08} />
 
-      <Floor polygon={polygon} />
+      <group position={[ox, 0, oz]}>
+        <Floor polygon={polygon} />
 
-      {obstacles.map((obs, i) => (
-        <ObstacleBox key={i} obs={obs} ceiling={ceiling} maxCeilH={maxCeilH} />
-      ))}
+        {obstacles.map((obs, i) => (
+          <ObstacleBox key={i} obs={obs} ceiling={ceiling} maxCeilH={maxCeilH} />
+        ))}
 
-      {visiblePlacements.map((p, i) => {
-        const type = typeMap.get(p.id)
-        if (!type) return null
-        return <BayBox key={i} p={p} type={type} showLabels={showLabels} showGaps={showGaps} />
-      })}
+        {visiblePlacements.map((p, i) => {
+          const type = typeMap.get(p.id)
+          if (!type) return null
+          return <BayBox key={i} p={p} type={type} showLabels={showLabels} showGaps={showGaps} />
+        })}
 
-      {showCeiling && ceiling.length > 0 && (
-        <CeilingPlanes ceiling={ceiling} polygon={polygon} />
-      )}
+        {showCeiling && ceiling.length > 0 && (
+          <CeilingPlanes ceiling={ceiling} polygon={polygon} />
+        )}
+      </group>
     </Canvas>
   )
 }

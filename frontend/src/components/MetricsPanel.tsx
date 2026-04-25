@@ -30,7 +30,7 @@ export default function MetricsPanel({ solution, warehouseCase }: Props) {
         </div>
         <AnimatedNumber
           value={metrics?.q ?? null}
-          format={(v) => v.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          format={(v) => v.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           style={{ fontFamily: 'var(--font-mono)', fontSize: 28, fontWeight: 700, color: 'var(--color-accent)', lineHeight: 1 }}
         />
       </div>
@@ -95,7 +95,9 @@ function QFormulaTooltip() {
         ref={btnRef}
         onMouseEnter={showTooltip}
         onMouseLeave={() => setVisible(false)}
-        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'var(--color-muted)' }}
+        onFocus={showTooltip}
+        onBlur={() => setVisible(false)}
+        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '10px', color: 'var(--color-muted)' }}
         aria-label="Q score formula"
       >
         <Info size={11} />
@@ -104,17 +106,17 @@ function QFormulaTooltip() {
         <div style={{
           position: 'fixed', top: pos.top, left: pos.left, zIndex: 1000,
           transform: 'translateX(-100%)',
-          background: '#0f172a', border: '1px solid #334155',
+          background: 'var(--color-card)', border: '1px solid var(--color-border)',
           borderRadius: 6, padding: '12px 14px',
           fontFamily: 'var(--font-mono)', fontSize: 11,
           color: 'var(--color-fg)', whiteSpace: 'nowrap',
-          boxShadow: '0 4px 20px rgba(0,0,0,0.7)',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
           pointerEvents: 'none', lineHeight: 1.6,
         }}>
           <div style={{ marginBottom: 8, color: 'var(--color-muted)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Formula</div>
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Q = (Σ price/ Σ loads)<sup style={{ fontSize: 9 }}>exp</sup></div>
           <div style={{ color: 'var(--color-muted)', fontSize: 10, marginBottom: 4 }}>exp = 2 − area_bays / area_warehouse</div>
-          <div style={{ color: '#22c55e', fontSize: 10 }}>Lower Q is better</div>
+          <div style={{ color: 'var(--color-accent)', fontSize: 10 }}>Lower Q is better</div>
         </div>
       )}
     </div>
@@ -136,7 +138,10 @@ function AnimatedNumber({
   useEffect(() => {
     if (value === null) { setDisplay('—'); return }
 
-    const duration = 600
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (reducedMotion) { setDisplay(format(value)); return }
+
+    const duration = 450
     const start = performance.now()
     const from = 0
     const target = value

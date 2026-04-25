@@ -941,7 +941,9 @@ int main(int argc, char* argv[]) {
 
     int num_threads = omp_get_max_threads();
     double total_alns_budget = WALL_BUDGET_SECONDS;
-    int restarts_per_thread = max(1, (RESTARTS + num_threads - 1) / num_threads); // ceil
+    // Each thread runs ceil(RESTARTS/num_threads) restarts sequentially under
+    // #pragma omp for; budget must be divided per-restart, not per-thread.
+    int restarts_per_thread = max(1, (RESTARTS + num_threads - 1) / num_threads);
     double per_restart = total_alns_budget / restarts_per_thread;
     auto global_alns_deadline = make_deadline(total_alns_budget);
 
@@ -957,6 +959,7 @@ int main(int argc, char* argv[]) {
         for (int r=0; r<RESTARTS; r++) {
             auto sol = build_initial(types,warehouse,obstacles,ceiling,wh_area,trng);
             double slice = min(per_restart, global_alns_deadline.remaining_seconds());
+            if (slice <= 0.0) continue;  // global ALNS budget exhausted — skip
             auto restart_deadline = make_deadline(max(0.5, slice));
             sol = alns(sol, types, warehouse, obstacles, ceiling, wh_area, restart_deadline, trng);
 

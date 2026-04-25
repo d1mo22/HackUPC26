@@ -523,15 +523,53 @@ double bay_score(const BayType& t) {
 //  OPERATORS
 // ─────────────────────────────────────────────
 
+vector<Point> build_interior_grid(
+    const vector<Point>& warehouse,
+    const vector<Obstacle>& obstacles,
+    const vector<BayType>& types)
+{
+    int min_w = INT_MAX, min_d = INT_MAX;
+    for (auto& t : types) {
+        min_w = min(min_w, t.w);
+        min_d = min(min_d, t.d);
+    }
+    int stride = max(300, min(min_w, min_d) / 2);
+
+    double xmin = warehouse[0].x, xmax = warehouse[0].x;
+    double ymin = warehouse[0].y, ymax = warehouse[0].y;
+    for (auto& p : warehouse) {
+        xmin = min(xmin, p.x); xmax = max(xmax, p.x);
+        ymin = min(ymin, p.y); ymax = max(ymax, p.y);
+    }
+
+    vector<Point> grid;
+    for (double x = xmin; x <= xmax; x += stride) {
+        for (double y = ymin; y <= ymax; y += stride) {
+            Point p{x, y};
+            if (!point_inside_or_on_polygon(p, warehouse)) continue;
+            bool blocked = false;
+            for (auto& o : obstacles) {
+                if (p.x >= o.x - EPS && p.x <= o.x + o.w + EPS &&
+                    p.y >= o.y - EPS && p.y <= o.y + o.d + EPS) {
+                    blocked = true; break;
+                }
+            }
+            if (!blocked) grid.push_back(p);
+        }
+    }
+    return grid;
+}
+
 vector<Point> candidate_points(
     const vector<Point>& warehouse,
     const vector<Obstacle>& obstacles,
     const vector<PlacedBay>& sol,
+    const vector<Point>& interior_grid,
     mt19937& rng,
     bool intensify_bias = false)
 {
     vector<Point> pts;
-    pts.reserve(400);
+    pts.reserve(600);
 
     for (auto p : warehouse) pts.push_back(p);
     for (auto& o : obstacles) {
@@ -542,6 +580,8 @@ vector<Point> candidate_points(
         for (auto& poly : all_polys(p))
             for (auto q : poly)
                 pts.push_back({round(q.x),round(q.y)});
+
+    for (auto& g : interior_grid) pts.push_back(g);
 
     // Mix 70/30 exploit/explore
     uniform_real_distribution<double> U(0.0, 1.0);
@@ -555,7 +595,7 @@ vector<Point> candidate_points(
         shuffle(pts.begin(), pts.end(), rng);
     }
 
-    if ((int)pts.size() > 280) pts.resize(280);
+    if ((int)pts.size() > 400) pts.resize(400);
     return pts;
 }
 
@@ -574,9 +614,10 @@ bool add_bay_custom(
     int max_pts_add,
     int angle_sample,
     bool randomized_repair,
-    bool intensify_bias)
+    bool intensify_bias,
+    const vector<Point>& interior_grid = {})
 {
-    auto pts = candidate_points(warehouse, obstacles, sol.bays, rng, intensify_bias);
+    auto pts = candidate_points(warehouse, obstacles, sol.bays, interior_grid, rng, intensify_bias);
 
     vector<BayType> sorted_types = types;
     sort(sorted_types.begin(),sorted_types.end(),[](const BayType& a,const BayType& b){
@@ -639,10 +680,11 @@ bool add_bay(
     const vector<Obstacle>& obstacles,
     const vector<pair<double,double>>& ceiling,
     double wh_area,
-    mt19937& rng)
+    mt19937& rng,
+    const vector<Point>& interior_grid = {})
 {
     return add_bay_custom(sol, types, warehouse, obstacles, ceiling, wh_area, rng,
-                          MAX_PTS_ADD, ANGLE_SAMPLE, false, false);
+                          MAX_PTS_ADD, ANGLE_SAMPLE, false, false, interior_grid);
 }
 
 // ─────────────────────────────────────────────
@@ -767,11 +809,12 @@ void repair_greedy(
     mt19937& rng,
     int max_pts_add = MAX_PTS_ADD,
     int angle_sample = ANGLE_SAMPLE,
-    bool intensify_bias = false)
+    bool intensify_bias = false,
+    const vector<Point>& interior_grid = {})
 {
     for (int i = 0; i < attempts; i++) {
         if (!add_bay_custom(sol, types, warehouse, obstacles, ceiling, wh_area, rng,
-                            max_pts_add, angle_sample, false, intensify_bias)) break;
+                            max_pts_add, angle_sample, false, intensify_bias, interior_grid)) break;
     }
 }
 
@@ -786,11 +829,12 @@ void repair_randomized(
     mt19937& rng,
     int max_pts_add = MAX_PTS_ADD,
     int angle_sample = ANGLE_SAMPLE,
-    bool intensify_bias = false)
+    bool intensify_bias = false,
+    const vector<Point>& interior_grid = {})
 {
     for (int i = 0; i < attempts; i++) {
         if (!add_bay_custom(sol, types, warehouse, obstacles, ceiling, wh_area, rng,
-                            max_pts_add, angle_sample, true, intensify_bias)) break;
+                            max_pts_add, angle_sample, true, intensify_bias, interior_grid)) break;
     }
 }
 
@@ -814,7 +858,8 @@ Solution alns_core(
     int max_pts_add,
     double T0,
     double alpha,
-    bool intensify_bias)
+    bool intensify_bias,
+    const vector<Point>& interior_grid = {})
 {
     Solution current = sol;
     double current_q = q_now(current, wh_area);
@@ -851,10 +896,10 @@ Solution alns_core(
         // repair
         if (r_idx == 0) {
             repair_greedy(cand, types, warehouse, obstacles, ceiling, wh_area,
-                          k + repair_extra, rng, max_pts_add, angle_sample, intensify_bias);
+                          k + repair_extra, rng, max_pts_add, angle_sample, intensify_bias, interior_grid);
         } else {
             repair_randomized(cand, types, warehouse, obstacles, ceiling, wh_area,
-                              k + repair_extra, rng, max_pts_add, angle_sample, intensify_bias);
+                              k + repair_extra, rng, max_pts_add, angle_sample, intensify_bias, interior_grid);
         }
 
         double q = q_now(cand, wh_area);
@@ -905,11 +950,12 @@ Solution alns(
     const vector<pair<double,double>>& ceiling,
     double wh_area,
     const Deadline& deadline,
-    mt19937& rng)
+    mt19937& rng,
+    const vector<Point>& interior_grid = {})
 {
     return alns_core(sol, types, warehouse, obstacles, ceiling, wh_area, rng,
                      deadline, LNS_K_MIN, LNS_K_MAX, LNS_REPAIR_EXTRA,
-                     ANGLE_SAMPLE, MAX_PTS_ADD, LNS_SA_T0, LNS_SA_ALPHA, false);
+                     ANGLE_SAMPLE, MAX_PTS_ADD, LNS_SA_T0, LNS_SA_ALPHA, false, interior_grid);
 }
 
 Solution intensify(
@@ -920,12 +966,13 @@ Solution intensify(
     const vector<pair<double,double>>& ceiling,
     double wh_area,
     const Deadline& deadline,
-    mt19937& rng)
+    mt19937& rng,
+    const vector<Point>& interior_grid = {})
 {
     return alns_core(sol, types, warehouse, obstacles, ceiling, wh_area, rng,
                      deadline, INTENSIFY_K_MIN, INTENSIFY_K_MAX, LNS_REPAIR_EXTRA + 1,
                      INTENSIFY_ANGLE_SAMPLE, INTENSIFY_MAX_PTS_ADD,
-                     INTENSIFY_T0, INTENSIFY_ALPHA, true);
+                     INTENSIFY_T0, INTENSIFY_ALPHA, true, interior_grid);
 }
 
 // ─────────────────────────────────────────────
@@ -954,11 +1001,12 @@ Solution build_initial(
     const vector<Obstacle>& obstacles,
     const vector<pair<double,double>>& ceiling,
     double wh_area,
-    mt19937& rng)
+    mt19937& rng,
+    const vector<Point>& interior_grid = {})
 {
     Solution sol;
     for (int i = 0; i < INITIAL_ADDS; i++)
-        add_bay(sol, types, warehouse, obstacles, ceiling, wh_area, rng);
+        add_bay(sol, types, warehouse, obstacles, ceiling, wh_area, rng, interior_grid);
     return sol;
 }
 
@@ -1000,6 +1048,9 @@ int main(int argc, char* argv[]) {
     double wh_area = polygon_area(warehouse);
     cout << "Warehouse area: " << wh_area << " mm²\n";
 
+    auto interior_grid = build_interior_grid(warehouse, obstacles, types);
+    cout << "Interior grid points: " << interior_grid.size() << "\n";
+
     Solution best_global;
     double best_global_q = 1e100;
 
@@ -1021,11 +1072,11 @@ int main(int argc, char* argv[]) {
 
         #pragma omp for schedule(dynamic)
         for (int r=0; r<RESTARTS; r++) {
-            auto sol = build_initial(types,warehouse,obstacles,ceiling,wh_area,trng);
+            auto sol = build_initial(types,warehouse,obstacles,ceiling,wh_area,trng,interior_grid);
             double slice = min(per_restart, global_alns_deadline.remaining_seconds());
             if (slice <= 0.0) continue;  // global ALNS budget exhausted — skip
             auto restart_deadline = make_deadline(max(0.5, slice));
-            sol = alns(sol, types, warehouse, obstacles, ceiling, wh_area, restart_deadline, trng);
+            sol = alns(sol, types, warehouse, obstacles, ceiling, wh_area, restart_deadline, trng, interior_grid);
 
             double q = q_now(sol, wh_area);
             bool valid = is_valid_solution(sol.bays, warehouse, obstacles, ceiling);
@@ -1058,7 +1109,7 @@ int main(int argc, char* argv[]) {
     if (!best_global.empty()) {
         mt19937 irng = make_rng(999999u);
         auto intensify_deadline = make_deadline(INTENSIFY_BUDGET_SECONDS);
-        auto improved = intensify(best_global, types, warehouse, obstacles, ceiling, wh_area, intensify_deadline, irng);
+        auto improved = intensify(best_global, types, warehouse, obstacles, ceiling, wh_area, intensify_deadline, irng, interior_grid);
         double q2 = q_now(improved, wh_area);
         bool valid2 = is_valid_solution(improved.bays, warehouse, obstacles, ceiling);
 

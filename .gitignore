@@ -1,4 +1,4 @@
+.superpowers/
 .DS_Store
-**/.claude
-**/.superpowers
-**/.venv
+./api/package.json
+./api/package-lock.json

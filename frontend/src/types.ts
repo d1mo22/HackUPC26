@@ -46,3 +46,15 @@ export interface WarehouseCase {
 export interface Solution {
   placements: PlacedBay[]
 }
+
+export interface RunRecord {
+  id: number
+  solution: Solution
+  metrics: {
+    q: number
+    coveragePct: number
+    bayCount: number
+  }
+  elapsedMs: number
+  timestamp: Date
+}

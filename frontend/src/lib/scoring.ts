@@ -18,7 +18,8 @@ export function computeMetrics(
 ): Metrics {
   const typeMap = new Map(bayTypes.map((t) => [t.id, t]))
 
-  let sumPricePerLoad = 0
+  let sumPrice = 0
+  let sumLoad = 0
   let areaCovered = 0
   let totalPrice = 0
   let totalLoads = 0
@@ -27,16 +28,19 @@ export function computeMetrics(
     const t = typeMap.get(p.id)
     if (!t) continue
     const { w, d } = bayDimensions(p, t)
-    sumPricePerLoad += t.price / t.loads
+    sumPrice += t.price 
+    sumLoad += t.loads
     areaCovered += w * d
     totalPrice += t.price
     totalLoads += t.loads
   }
 
+  let priceLoad = sumPrice / sumLoad
+
   const bounds = polygonBounds(polygon)
   const areaWarehouse = (bounds.maxX - bounds.minX) * (bounds.maxY - bounds.minY)
   const ratio = areaCovered / areaWarehouse
-  const q = placements.length > 0 ? Math.pow(sumPricePerLoad, 2 - ratio) : 0
+  const q = placements.length > 0 ? Math.pow(priceLoad, 2 - ratio) : 0
 
   return {
     q,

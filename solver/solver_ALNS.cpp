@@ -108,46 +108,53 @@ struct Obstacle { double x, y, w, d; };
 
 struct Solution {
     vector<PlacedBay> bays;
-    double sum_pl = 0.0;   // Σ price / max(1, loads)
-    double area  = 0.0;    // Σ w * d
+    double sum_price = 0.0; // Σ price
+    double sum_loads = 0.0; // Σ loads
+    double area      = 0.0; // Σ w * d
 
     void push(const PlacedBay& p) {
         bays.push_back(p);
-        sum_pl += (double)p.price / max(1, p.loads);
-        area   += (double)p.w * p.d;
+        sum_price += p.price;
+        sum_loads += p.loads;
+        area      += (double)p.w * p.d;
     }
 
     void pop() {
         const auto& p = bays.back();
-        sum_pl -= (double)p.price / max(1, p.loads);
-        area   -= (double)p.w * p.d;
+        sum_price -= p.price;
+        sum_loads -= p.loads;
+        area      -= (double)p.w * p.d;
         bays.pop_back();
     }
 
     void erase_at(int i) {
         const auto& p = bays[i];
-        sum_pl -= (double)p.price / max(1, p.loads);
-        area   -= (double)p.w * p.d;
+        sum_price -= p.price;
+        sum_loads -= p.loads;
+        area      -= (double)p.w * p.d;
         bays.erase(bays.begin() + i);
     }
 
-    void clear() { bays.clear(); sum_pl = 0.0; area = 0.0; }
+    void clear() { bays.clear(); sum_price = 0.0; sum_loads = 0.0; area = 0.0; }
     int size() const { return (int)bays.size(); }
     bool empty() const { return bays.empty(); }
     PlacedBay&       operator[](int i)       { return bays[i]; }
     const PlacedBay& operator[](int i) const { return bays[i]; }
 };
 
-static inline double q_after_add(const Solution& s, double dpl, double darea, double wh_area) {
-    double pl   = s.sum_pl + dpl;
-    double area = s.area   + darea;
-    if (pl <= 0.0) return 1e100;
-    return pow(pl, 2.0 - area / wh_area);
+// New formula: Q = (sum_price / sum_loads) ^ (2 - area / wh_area)
+static inline double q_after_add(const Solution& s, double dprice, double dloads, double darea, double wh_area) {
+    double sp = s.sum_price + dprice;
+    double sl = s.sum_loads + dloads;
+    double area = s.area + darea;
+    if (sl <= 0.0) return 1e100;
+    return pow(sp / sl, 2.0 - area / wh_area);
 }
 
 static inline double q_now(const Solution& s, double wh_area) {
     if (s.bays.empty()) return 1e100;
-    return pow(s.sum_pl, 2.0 - s.area / wh_area);
+    if (s.sum_loads <= 0.0) return 1e100;
+    return pow(s.sum_price / s.sum_loads, 2.0 - s.area / wh_area);
 }
 
 // ─────────────────────────────────────────────
@@ -502,12 +509,14 @@ bool valid_candidate(
 
 double quality(const vector<PlacedBay>& sol, double wh_area) {
     if (sol.empty()) return 1e100;
-    double pl=0, area=0;
+    double sp = 0, sl = 0, area = 0;
     for (auto& p : sol) {
-        pl   += (double)p.price / max(1,p.loads);
+        sp   += p.price;
+        sl   += p.loads;
         area += (double)p.w * p.d;
     }
-    return pow(pl, 2.0 - area/wh_area);
+    if (sl <= 0.0) return 1e100;
+    return pow(sp / sl, 2.0 - area / wh_area);
 }
 
 double quality(const Solution& s, double wh_area) {
@@ -657,9 +666,10 @@ bool add_bay_custom(
                 int angle=angles[ai];
                 if (valid_candidate(x, y, t.w, t.d, t.h, t.gap, angle,
                                     sol.bays, warehouse, obstacles, ceiling)) {
-                    double dpl   = (double)t.price / max(1, t.loads);
-                    double darea = (double)t.w * t.d;
-                    double q = q_after_add(sol, dpl, darea, wh_area);
+                    double dprice = t.price;
+                    double dloads = t.loads;
+                    double darea  = (double)t.w * t.d;
+                    double q = q_after_add(sol, dprice, dloads, darea, wh_area);
                     if (q < best_q) {
                         best_q = q;
                         best   = make_candidate(t, x, y, angle);
@@ -860,15 +870,16 @@ static bool type_swap_pass(
 
         PlacedBay best = cur;
         double best_q = q_after_add(sol,
-            (double)cur.price/max(1,cur.loads), (double)cur.w*cur.d, wh_area);
+            (double)cur.price, (double)cur.loads, (double)cur.w*cur.d, wh_area);
 
         for (auto& t : types) {
             if (t.id == cur.id) continue;
             if (!valid_candidate(cur.x, cur.y, t.w, t.d, t.h, t.gap, cur.angle,
                                  sol.bays, warehouse, obstacles, ceiling)) continue;
-            double dpl   = (double)t.price / max(1, t.loads);
-            double darea = (double)t.w * t.d;
-            double q = q_after_add(sol, dpl, darea, wh_area);
+            double dprice = t.price;
+            double dloads = t.loads;
+            double darea  = (double)t.w * t.d;
+            double q = q_after_add(sol, dprice, dloads, darea, wh_area);
             if (q + EPS < best_q) {
                 best_q = q;
                 best = make_candidate(t, cur.x, cur.y, cur.angle);

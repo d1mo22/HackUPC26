@@ -126,7 +126,7 @@ export default function FileLoader({ onCaseLoaded, onSolutionLoaded }: Props) {
       {SLOTS.map(({ key }) =>
         slots[key].error ? (
           <p key={key} role="alert" style={{ fontSize: 11, color: 'var(--color-destructive)', fontFamily: 'var(--font-mono)', marginTop: -4 }}>
-            {key}: {slots[key].error}
+            {slots[key].error}
           </p>
         ) : null
       )}

@@ -75,7 +75,7 @@ export default function RightPanel({ solution, warehouseCase, runHistory, active
           <BreakdownTab solution={solution} warehouseCase={warehouseCase} />
         )}
         {activeTab === 'breakdown' && !(solution && warehouseCase) && (
-          <div style={{ padding: 16, color: 'var(--color-muted)', fontSize: 13, fontFamily: 'var(--font-ui)' }}>
+          <div style={{ padding: 16, color: 'var(--color-muted)', fontSize: 13, fontFamily: 'var(--font-mono)' }}>
             Load files and run the solver first.
           </div>
         )}

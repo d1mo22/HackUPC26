@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-HackUPC 2026 — Mecalux Warehouse Optimizer. Given a warehouse polygon, obstacles, a stepped ceiling, and bay type catalog, produce a 2D bay placement that maximises the metric:
+HackUPC 2026 — Mecalux Warehouse Optimizer. Given a warehouse polygon, obstacles, a stepped ceiling, and bay type catalog, produce a 2D bay placement that minimises the metric:
 
 ```
 Q = (Σ price/loads)^(2 - area_bays/area_warehouse)
@@ -51,7 +51,52 @@ All coordinates are in **millimetres**, origin bottom-left.
 
 React + TypeScript + Vite + Tailwind CSS + Canvas 2D API (native). PapaParse for CSV parsing. Small Node/Express bridge to spawn `solver.py` and return `solution.csv`.
 
-See `plan.md` §6 for the full component breakdown and integration approach.
+**Important:** Tailwind utility classes for layout/spacing/color are unreliable in this setup — use inline `style={{}}` props for everything. Tailwind structural classes (`flex`, `flex-1`, `overflow-hidden`) still work.
+
+See `frontend/FRONTEND_PLAN.md` for the full task breakdown.
+
+## Frontend status (as of 2026-04-25)
+
+### Done ✅
+
+| Task | Component/File | Notes |
+|------|---------------|-------|
+| T1 | `src/index.css`, `index.html` | CSS variables, Google Fonts |
+| T2 | `src/App.tsx` | 3-column shell, StatusBadge |
+| T3 | `src/App.tsx` | Topbar inline in App |
+| T4 | `src/components/FileLoader.tsx` | 2×2 grid + solution slot, validation |
+| T5 | `server/index.ts`, `server/run_single.py` | Express POST /solve |
+| T6 | Wired in `App.tsx` `handleRun()` | fetch /solve, parse response |
+| T11 | `src/components/MetricsPanel.tsx` | Q score, coverage, price, loads, animated |
+| T12 | `src/components/BayLegend.tsx` | Per-type color swatch + stats |
+| T13 | `src/components/Controls.tsx` | Toggles, Run Solver, Export CSV |
+| Intelligence Panel | `src/components/RightPanel.tsx` | 3 tabs: Metrics · Breakdown · History |
+| Breakdown tab | `src/components/BreakdownTab.tsx` | price/loads bar chart, tip card |
+| History tab | `src/components/HistoryTab.tsx` | Past runs, restore on canvas |
+| Export CSV | `src/components/Controls.tsx` | Client-side blob download |
+| CSV validation | `src/lib/csvParser.ts` | Header skip, column names in errors |
+| Types | `src/types.ts` | Includes `RunRecord` |
+
+### Remaining ⏳
+
+| Task | Owner | Blocked on |
+|------|-------|-----------|
+| T7 — Canvas: warehouse + obstacles | Ferran | — |
+| T8 — Canvas: bay rendering | Ferran | T7 |
+| T9 — Canvas: ceiling overlay | Ferran | T7 |
+| T10 — Canvas: hit-testing + tooltip | Ferran | T8 |
+| T14 — Wire canvas into App | Both | T7–T10 |
+| Split-canvas comparison view | David | Ferran's canvas prop-driven |
+
+### To start the app
+
+```bash
+# Terminal 1 — frontend dev server
+cd frontend && npm run dev
+
+# Terminal 2 — solver bridge (needed for Run Solver button)
+cd frontend && npm run dev:server
+```
 
 ## Key geometry invariants
 

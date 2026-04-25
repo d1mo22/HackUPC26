@@ -27,7 +27,7 @@ export default function HistoryTab({ history, activeRunId, onRestore }: Props) {
         }}>
           History
         </p>
-        <p style={{ color: 'var(--color-muted)', fontSize: 13, fontFamily: 'var(--font-ui)' }}>
+        <p style={{ color: 'var(--color-muted)', fontSize: 13, fontFamily: 'var(--font-mono)' }}>
           Run the solver to see history here.
         </p>
       </div>

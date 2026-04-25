@@ -24,7 +24,7 @@ export default function BreakdownTab({ solution, warehouseCase }: Props) {
     .sort((a, b) => a.ratio - b.ratio)
 
   if (rows.length === 0) return (
-    <div style={{ padding: 16, color: 'var(--color-muted)', fontSize: 13 }}>No solution loaded.</div>
+    <div style={{ padding: 16, color: 'var(--color-muted)', fontSize: 13, fontFamily: 'var(--font-mono)' }}>No solution loaded.</div>
   )
 
   const maxRatio = rows[rows.length - 1].ratio

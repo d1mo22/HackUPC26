@@ -6,6 +6,7 @@ import Controls from './components/Controls'
 import { computeMetrics } from './lib/scoring'
 import { parseSolution } from './lib/csvParser'
 import type { RunRecord, WarehouseCase, Solution } from './types'
+import WarehouseViewer from './components/WarehouseViewer'
 
 let nextRunId = 1
 
@@ -125,7 +126,7 @@ export default function App() {
         </aside>
 
         {/* Canvas center */}
-        <main
+        {/* <main
           className="flex-1 overflow-hidden flex flex-col items-center justify-center gap-2"
           style={{ background: 'var(--color-bg)' }}
         >
@@ -135,7 +136,23 @@ export default function App() {
               Load the 4 CSV files in the left panel to begin
             </span>
           )}
-        </main>
+        </main> */}
+
+        <main className="flex-1 relative bg-slate-50">
+        {rawFiles ? (
+          <WarehouseViewer 
+            
+          />
+        ) : (
+          <div className="h-full flex flex-col items-center justify-center text-muted-foreground p-10 text-center">
+            <div className="mb-4 opacity-20">
+              {/* Una icona gran de magatzem o fitxer */}
+            </div>
+            <p className="text-lg font-medium">No hi ha dades carregades</p>
+            <p className="text-sm">Puja els fitxers CSV al menú de l'esquerra per visualitzar el magatzem.</p>
+          </div>
+        )}
+      </main>
 
         {/* Right panel */}
         <aside

@@ -939,8 +939,10 @@ int main(int argc, char* argv[]) {
     Solution best_global;
     double best_global_q = 1e100;
 
+    int num_threads = omp_get_max_threads();
     double total_alns_budget = WALL_BUDGET_SECONDS;
-    double per_restart = total_alns_budget / RESTARTS;
+    int restarts_per_thread = max(1, (RESTARTS + num_threads - 1) / num_threads); // ceil
+    double per_restart = total_alns_budget / restarts_per_thread;
     auto global_alns_deadline = make_deadline(total_alns_budget);
 
     // Parallel restarts

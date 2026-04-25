@@ -7,25 +7,31 @@
 #include <tuple>
 #include <numeric>
 #include <string>
+#include <future>
 
 using namespace std;
 
 const vector<string> CASES = {"Case0", "Case1", "Case2", "Case3"};
 
-const int ITERATIONS = 400;
-const int INITIAL_ADDS = 70;
+const int ITERATIONS = 450;
+const int INITIAL_ADDS = 80;
 const int RESTARTS = 8;
-const int MAX_POINTS_ADD = 70;
-const int ANGLE_SAMPLE = 8;
+const int MAX_POINTS_ADD = 80;
+const int ANGLE_SAMPLE = 14;
 
 const double EPS = 1e-7;
 const double PI = acos(-1.0);
 
-mt19937 rng(42);
+thread_local mt19937 rng(42);
 
-struct Point {
-    double x, y;
+enum InitMode {
+    CHEAP_LOAD = 0,
+    BIG_AREA = 1,
+    LOW_GAP = 2,
+    BALANCED = 3
 };
+
+struct Point { double x, y; };
 
 struct BayType {
     int id, w, d, h, gap, loads, price;
@@ -43,8 +49,12 @@ struct Obstacle {
     double x, y, w, d;
 };
 
-vector<int> ANGLES = {0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170};
-
+vector<int> ANGLES = {
+    0, 10, 20, 30, 40, 50, 60, 70, 80, 90,
+    100, 110, 120, 130, 140, 150, 160, 170,
+    180, 190, 200, 210, 220, 230, 240, 250, 260, 270,
+    280, 290, 300, 310, 320, 330, 340, 350
+};
 
 // ================= GEOMETRY =================
 
@@ -58,13 +68,11 @@ double dotp(Point a, Point b) {
 
 double polygon_area(const vector<Point>& p) {
     double a = 0;
-
     for (int i = 0; i < (int)p.size(); i++) {
         Point p1 = p[i];
         Point p2 = p[(i + 1) % p.size()];
         a += p1.x * p2.y - p2.x * p1.y;
     }
-
     return fabs(a) / 2.0;
 }
 
@@ -77,7 +85,6 @@ bool point_on_segment(Point p, Point a, Point b) {
 
 int orient(Point a, Point b, Point c) {
     double v = cross(a, b, c);
-
     if (fabs(v) < EPS) return 0;
     return v > 0 ? 1 : -1;
 }
@@ -108,10 +115,7 @@ bool point_inside_or_on_polygon(Point p, const vector<Point>& poly) {
 
         if (crosses_y) {
             double x_intersect = (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x;
-
-            if (p.x < x_intersect) {
-                inside = !inside;
-            }
+            if (p.x < x_intersect) inside = !inside;
         }
     }
 
@@ -138,14 +142,10 @@ bool any_proper_segment_crossing(const vector<Point>& a, const vector<Point>& b)
 
 bool polygon_inside_polygon(const vector<Point>& small, const vector<Point>& big) {
     for (auto p : small) {
-        if (!point_inside_or_on_polygon(p, big)) {
-            return false;
-        }
+        if (!point_inside_or_on_polygon(p, big)) return false;
     }
 
-    if (any_proper_segment_crossing(small, big)) {
-        return false;
-    }
+    if (any_proper_segment_crossing(small, big)) return false;
 
     return true;
 }
@@ -181,7 +181,7 @@ bool sat_overlap_positive_area(const vector<Point>& a, const vector<Point>& b) {
             project_poly(a, axis, minA, maxA);
             project_poly(b, axis, minB, maxB);
 
-            // Permite tocar bordes sin contar como solape
+            // Touching border is allowed. Positive area overlap is not.
             if (maxA <= minB + EPS || maxB <= minA + EPS) {
                 return false;
             }
@@ -251,17 +251,6 @@ vector<Point> gap_poly(const PlacedBay& p) {
     return gap_poly_values(p.x, p.y, p.w, p.d, p.gap, p.angle);
 }
 
-vector<vector<Point>> all_polys(const PlacedBay& p) {
-    vector<vector<Point>> res;
-
-    res.push_back(bay_poly(p));
-
-    auto g = gap_poly(p);
-    if (!g.empty()) res.push_back(g);
-
-    return res;
-}
-
 vector<Point> obstacle_poly(const Obstacle& o) {
     return {
         {o.x, o.y},
@@ -282,7 +271,6 @@ pair<double, double> minmax_x(const vector<Point>& poly) {
 
     return {mn, mx};
 }
-
 
 // ================= CSV =================
 
@@ -311,7 +299,6 @@ vector<string> split_csv_line(string line) {
 
 bool file_empty_or_missing(const string& path) {
     ifstream f(path);
-
     if (!f.good()) return true;
 
     string line;
@@ -332,7 +319,6 @@ vector<Point> read_warehouse(const string& path) {
 
     while (getline(f, line)) {
         if (line.empty()) continue;
-
         auto v = split_csv_line(line);
 
         if (v.size() >= 2) {
@@ -353,7 +339,6 @@ vector<Obstacle> read_obstacles(const string& path) {
 
     while (getline(f, line)) {
         if (line.empty()) continue;
-
         auto v = split_csv_line(line);
 
         if (v.size() >= 4) {
@@ -376,7 +361,6 @@ vector<pair<double, double>> read_ceiling(const string& path) {
 
     while (getline(f, line)) {
         if (line.empty()) continue;
-
         auto v = split_csv_line(line);
 
         if (v.size() >= 2) {
@@ -385,7 +369,6 @@ vector<pair<double, double>> read_ceiling(const string& path) {
     }
 
     sort(res.begin(), res.end());
-
     return res;
 }
 
@@ -396,7 +379,6 @@ vector<BayType> read_bays(const string& path) {
 
     while (getline(f, line)) {
         if (line.empty()) continue;
-
         auto v = split_csv_line(line);
 
         if (v.size() >= 7) {
@@ -415,7 +397,6 @@ vector<BayType> read_bays(const string& path) {
     return res;
 }
 
-
 // ================= VALIDATION =================
 
 double min_ceiling_between(double x1, double x2, const vector<pair<double, double>>& ceiling) {
@@ -428,7 +409,6 @@ double min_ceiling_between(double x1, double x2, const vector<pair<double, doubl
     for (int i = 0; i < (int)ceiling.size(); i++) {
         double seg_x1 = ceiling[i].first;
         double h = ceiling[i].second;
-
         double seg_x2 = 1e18;
 
         if (i + 1 < (int)ceiling.size()) {
@@ -460,69 +440,82 @@ bool valid_candidate(
     const vector<pair<double, double>>& ceiling,
     int ignore = -1
 ) {
-    vector<vector<Point>> polys;
+    vector<Point> candidate_bay = make_rotated_rect(x, y, w, d, angle);
+    vector<Point> candidate_gap = gap_poly_values(x, y, w, d, gap, angle);
 
-    vector<Point> bay = make_rotated_rect(x, y, w, d, angle);
-    polys.push_back(bay);
+    // Bay and gap must be inside warehouse.
+    if (!polygon_inside_polygon(candidate_bay, warehouse)) return false;
 
-    auto gp = gap_poly_values(x, y, w, d, gap, angle);
-    if (!gp.empty()) polys.push_back(gp);
+    if (!candidate_gap.empty()) {
+        if (!polygon_inside_polygon(candidate_gap, warehouse)) return false;
+    }
 
-    for (auto& poly : polys) {
-        if (!polygon_inside_polygon(poly, warehouse)) {
+    // Bay and gap cannot overlap obstacles.
+    for (auto& o : obstacles) {
+        auto op = obstacle_poly(o);
+
+        if (polygons_overlap_area(candidate_bay, op)) return false;
+
+        if (!candidate_gap.empty() && polygons_overlap_area(candidate_gap, op)) {
             return false;
         }
     }
 
-    for (auto& poly : polys) {
-        for (auto& o : obstacles) {
-            auto op = obstacle_poly(o);
+    // Bay-bay, bay-gap and gap-bay are forbidden.
+    // Gap-gap is allowed.
+    for (int i = 0; i < (int)sol.size(); i++) {
+        if (i == ignore) continue;
 
-            if (polygons_overlap_area(poly, op)) {
-                return false;
-            }
+        vector<Point> other_bay = bay_poly(sol[i]);
+        vector<Point> other_gap = gap_poly(sol[i]);
+
+        if (polygons_overlap_area(candidate_bay, other_bay)) return false;
+
+        if (!other_gap.empty() && polygons_overlap_area(candidate_bay, other_gap)) {
+            return false;
+        }
+
+        if (!candidate_gap.empty() && polygons_overlap_area(candidate_gap, other_bay)) {
+            return false;
         }
     }
 
-    for (auto& poly : polys) {
-        for (int i = 0; i < (int)sol.size(); i++) {
-            if (i == ignore) continue;
-
-            for (auto& other : all_polys(sol[i])) {
-                if (polygons_overlap_area(poly, other)) {
-                    return false;
-                }
-            }
-        }
-    }
-
-    auto bx = minmax_x(bay);
+    // Height restriction only applies to the physical bay, not the gap.
+    auto bx = minmax_x(candidate_bay);
     double min_h = min_ceiling_between(bx.first, bx.second, ceiling);
 
-    if (h > min_h + EPS) {
-        return false;
-    }
+    if (h > min_h + EPS) return false;
 
     return true;
 }
-
 
 // ================= SCORE =================
 
 double quality(const vector<PlacedBay>& sol, double warehouse_area) {
     if (sol.empty()) return 1e100;
 
-    double price_load_sum = 0;
+    double total_price = 0;
+    double total_loads = 0;
     double used_area = 0;
 
     for (auto& p : sol) {
-        price_load_sum += (double)p.price / max(1, p.loads);
+        total_price += p.price;
+        total_loads += p.loads;
         used_area += (double)p.w * p.d;
     }
 
-    double exponent = 2.0 - used_area / warehouse_area;
+    double base = total_price / max(1.0, total_loads);
+    double exponent = 2.0 - (used_area / warehouse_area);
 
-    return pow(price_load_sum, exponent);
+    return pow(base, exponent);
+}
+
+double used_area(const vector<PlacedBay>& sol) {
+    double area = 0;
+    for (auto& p : sol) {
+        area += (double)p.w * p.d;
+    }
+    return area;
 }
 
 tuple<double, int, int, double> details(const vector<PlacedBay>& sol, double wh_area) {
@@ -539,11 +532,48 @@ tuple<double, int, int, double> details(const vector<PlacedBay>& sol, double wh_
     return {area, loads, price, quality(sol, wh_area)};
 }
 
-double bay_score(const BayType& t) {
+double bay_score_mode(const BayType& t, int mode, double wh_area) {
+    double area = (double)t.w * t.d;
     double reserved = (double)t.w * (t.d + t.gap);
-    return ((double)t.loads * t.w * t.d) / max(1.0, (double)t.price * reserved);
+    double price_load = (double)t.price / max(1.0, (double)t.loads);
+    double area_ratio = area / max(1.0, wh_area);
+    double gap_ratio = (reserved - area) / max(1.0, reserved);
+
+    if (mode == CHEAP_LOAD) {
+        return -price_load;
+    }
+
+    if (mode == BIG_AREA) {
+        return area_ratio;
+    }
+
+    if (mode == LOW_GAP) {
+        return -gap_ratio + 0.2 * area_ratio;
+    }
+
+    return 2.0 * area_ratio - 1.0 * price_load - 0.5 * gap_ratio;
 }
 
+double candidate_score_mode(
+    const BayType& t,
+    double x,
+    double y,
+    int angle,
+    double wh_area,
+    int mode
+) {
+    double s = bay_score_mode(t, mode, wh_area);
+
+    // Prefer principal directions slightly, but not too much.
+    if (angle == 0 || angle == 90 || angle == 180 || angle == 270) {
+        s += 0.05;
+    }
+
+    // Small compaction bias.
+    s -= 0.000001 * (x + y);
+
+    return s;
+}
 
 // ================= OPERATORS =================
 
@@ -564,16 +594,16 @@ vector<Point> candidate_points(
     }
 
     for (auto& p : sol) {
-        for (auto& poly : all_polys(p)) {
-            for (auto q : poly) {
-                pts.push_back({round(q.x), round(q.y)});
-            }
-        }
+        auto bp = bay_poly(p);
+        auto gp = gap_poly(p);
+
+        for (auto q : bp) pts.push_back({round(q.x), round(q.y)});
+        for (auto q : gp) pts.push_back({round(q.x), round(q.y)});
     }
 
     shuffle(pts.begin(), pts.end(), rng);
 
-    if ((int)pts.size() > 250) pts.resize(250);
+    if ((int)pts.size() > 300) pts.resize(300);
 
     return pts;
 }
@@ -599,19 +629,20 @@ bool add_bay(
     const vector<Point>& warehouse,
     const vector<Obstacle>& obstacles,
     const vector<pair<double, double>>& ceiling,
-    double wh_area
+    double wh_area,
+    int mode
 ) {
     auto pts = candidate_points(warehouse, obstacles, sol);
 
     vector<BayType> sorted_types = types;
 
-    sort(sorted_types.begin(), sorted_types.end(), [](const BayType& a, const BayType& b) {
-        return bay_score(a) > bay_score(b);
+    sort(sorted_types.begin(), sorted_types.end(), [&](const BayType& a, const BayType& b) {
+        return bay_score_mode(a, mode, wh_area) > bay_score_mode(b, mode, wh_area);
     });
 
     PlacedBay best;
     bool found = false;
-    double best_q = 1e100;
+    double best_s = -1e100;
 
     int point_limit = min(MAX_POINTS_ADD, (int)pts.size());
 
@@ -629,15 +660,11 @@ bool add_bay(
                 int angle = angles[ai];
 
                 if (valid_candidate(x, y, t.w, t.d, t.h, t.gap, angle, sol, warehouse, obstacles, ceiling)) {
-                    auto c = make_candidate(t, x, y, angle);
+                    double s = candidate_score_mode(t, x, y, angle, wh_area, mode);
 
-                    sol.push_back(c);
-                    double q = quality(sol, wh_area);
-                    sol.pop_back();
-
-                    if (q < best_q) {
-                        best_q = q;
-                        best = c;
+                    if (s > best_s) {
+                        best_s = s;
+                        best = make_candidate(t, x, y, angle);
                         found = true;
                     }
                 }
@@ -651,13 +678,6 @@ bool add_bay(
     }
 
     return false;
-}
-
-void delete_bay(vector<PlacedBay>& sol) {
-    if (sol.empty()) return;
-
-    int idx = rng() % sol.size();
-    sol.erase(sol.begin() + idx);
 }
 
 void delete_worst_bay(vector<PlacedBay>& sol) {
@@ -678,22 +698,19 @@ void delete_worst_bay(vector<PlacedBay>& sol) {
     sol.erase(sol.begin() + worst_idx);
 }
 
-
 void fill_aggressive(
     vector<PlacedBay>& sol,
     const vector<BayType>& types,
     const vector<Point>& warehouse,
     const vector<Obstacle>& obstacles,
     const vector<pair<double, double>>& ceiling,
-    double wh_area
+    double wh_area,
+    int mode
 ) {
-    for (int i = 0; i < 4; i++) {
-        bool ok = add_bay(sol, types, warehouse, obstacles, ceiling, wh_area);
-
-        if (!ok) break;
+    for (int i = 0; i < 5; i++) {
+        if (!add_bay(sol, types, warehouse, obstacles, ceiling, wh_area, mode)) break;
     }
 }
-
 
 void remove_k_and_refill(
     vector<PlacedBay>& sol,
@@ -701,22 +718,28 @@ void remove_k_and_refill(
     const vector<Point>& warehouse,
     const vector<Obstacle>& obstacles,
     const vector<pair<double, double>>& ceiling,
-    double wh_area
+    double wh_area,
+    int mode
 ) {
     if (sol.empty()) return;
 
-    int k = min(3, (int)sol.size());
+    vector<PlacedBay> backup = sol;
 
-    for (int i = 0; i < k; i++) {
+    int k = min(4, max(1, (int)sol.size() / 5));
+
+    for (int i = 0; i < k && !sol.empty(); i++) {
         int idx = rng() % sol.size();
         sol.erase(sol.begin() + idx);
     }
 
-    for (int i = 0; i < k + 2; i++) {
-        add_bay(sol, types, warehouse, obstacles, ceiling, wh_area);
+    for (int i = 0; i < k + 3; i++) {
+        add_bay(sol, types, warehouse, obstacles, ceiling, wh_area, mode);
+    }
+
+    if (quality(sol, wh_area) > quality(backup, wh_area)) {
+        sol = backup;
     }
 }
-
 
 void upgrade_bay(
     vector<PlacedBay>& sol,
@@ -724,7 +747,8 @@ void upgrade_bay(
     const vector<Point>& warehouse,
     const vector<Obstacle>& obstacles,
     const vector<pair<double, double>>& ceiling,
-    double wh_area
+    double wh_area,
+    int mode
 ) {
     if (sol.empty()) return;
 
@@ -734,7 +758,7 @@ void upgrade_bay(
     sol.erase(sol.begin() + idx);
 
     PlacedBay best = old;
-    double best_q = 1e100;
+    double best_q = quality(vector<PlacedBay>{old}, wh_area);
     bool found = false;
 
     for (auto& t : types) {
@@ -746,26 +770,8 @@ void upgrade_bay(
         for (int i = 0; i < limit; i++) {
             int angle = angles[i];
 
-            if (valid_candidate(
-                    old.x, old.y,
-                    t.w, t.d,
-                    t.h, t.gap,
-                    angle,
-                    sol, warehouse, obstacles, ceiling
-                )) {
-
-                PlacedBay candidate{
-                    t.id,
-                    old.x,
-                    old.y,
-                    t.w,
-                    t.d,
-                    t.h,
-                    t.gap,
-                    angle,
-                    t.price,
-                    t.loads
-                };
+            if (valid_candidate(old.x, old.y, t.w, t.d, t.h, t.gap, angle, sol, warehouse, obstacles, ceiling)) {
+                PlacedBay candidate = make_candidate(t, old.x, old.y, angle);
 
                 sol.push_back(candidate);
                 double q = quality(sol, wh_area);
@@ -789,22 +795,65 @@ void replace_bay(
     const vector<Point>& warehouse,
     const vector<Obstacle>& obstacles,
     const vector<pair<double, double>>& ceiling,
-    double wh_area
+    double wh_area,
+    int mode
 ) {
     if (sol.empty()) return;
 
-    int idx = rng() % sol.size();
-    PlacedBay old = sol[idx];
+    vector<PlacedBay> backup = sol;
 
+    int idx = rng() % sol.size();
     sol.erase(sol.begin() + idx);
 
-    bool ok = add_bay(sol, types, warehouse, obstacles, ceiling, wh_area);
+    bool ok = add_bay(sol, types, warehouse, obstacles, ceiling, wh_area, mode);
 
-    if (!ok) {
-        sol.push_back(old);
+    if (!ok || quality(sol, wh_area) > quality(backup, wh_area)) {
+        sol = backup;
     }
 }
 
+void shared_gap_refill(
+    vector<PlacedBay>& sol,
+    const vector<BayType>& types,
+    const vector<Point>& warehouse,
+    const vector<Obstacle>& obstacles,
+    const vector<pair<double, double>>& ceiling,
+    double wh_area,
+    int mode
+) {
+    if (sol.empty()) return;
+
+    vector<PlacedBay> backup = sol;
+
+    int k = min(6, max(2, (int)sol.size() / 4));
+
+    for (int i = 0; i < k && !sol.empty(); i++) {
+        int idx = rng() % sol.size();
+        sol.erase(sol.begin() + idx);
+    }
+
+    vector<int> old_angles = ANGLES;
+
+    // Pairs like 0/180 and 90/270 help two bays face their gaps into the same aisle.
+    ANGLES = {
+        0, 180,
+        90, 270,
+        10, 190,
+        80, 260,
+        100, 280,
+        170, 350
+    };
+
+    for (int i = 0; i < k + 5; i++) {
+        add_bay(sol, types, warehouse, obstacles, ceiling, wh_area, mode);
+    }
+
+    ANGLES = old_angles;
+
+    if (quality(sol, wh_area) > quality(backup, wh_area)) {
+        sol = backup;
+    }
+}
 
 // ================= SOLVER =================
 
@@ -835,12 +884,13 @@ vector<PlacedBay> build_initial(
     const vector<Point>& warehouse,
     const vector<Obstacle>& obstacles,
     const vector<pair<double, double>>& ceiling,
-    double wh_area
+    double wh_area,
+    int mode
 ) {
     vector<PlacedBay> sol;
 
     for (int i = 0; i < INITIAL_ADDS; i++) {
-        add_bay(sol, types, warehouse, obstacles, ceiling, wh_area);
+        if (!add_bay(sol, types, warehouse, obstacles, ceiling, wh_area, mode)) break;
     }
 
     return sol;
@@ -852,7 +902,8 @@ vector<PlacedBay> hill(
     const vector<Point>& warehouse,
     const vector<Obstacle>& obstacles,
     const vector<pair<double, double>>& ceiling,
-    double wh_area
+    double wh_area,
+    int mode
 ) {
     vector<PlacedBay> best = sol;
     double best_q = quality(best, wh_area);
@@ -863,22 +914,22 @@ vector<PlacedBay> hill(
         int op = rng() % 6;
 
         if (op == 0) {
-            add_bay(candidate, types, warehouse, obstacles, ceiling, wh_area);
+            add_bay(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
         }
         else if (op == 1) {
-            replace_bay(candidate, types, warehouse, obstacles, ceiling, wh_area);
+            replace_bay(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
         }
         else if (op == 2) {
-            delete_worst_bay(candidate);
+            fill_aggressive(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
         }
         else if (op == 3) {
-            fill_aggressive(candidate, types, warehouse, obstacles, ceiling, wh_area);
+            remove_k_and_refill(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
         }
         else if (op == 4) {
-            remove_k_and_refill(candidate, types, warehouse, obstacles, ceiling, wh_area);
+            shared_gap_refill(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
         }
         else {
-            upgrade_bay(candidate, types, warehouse, obstacles, ceiling, wh_area);
+            upgrade_bay(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
         }
 
         double q = quality(candidate, wh_area);
@@ -902,38 +953,52 @@ void solve_case(const string& case_dir) {
 
     double wh_area = polygon_area(warehouse);
 
-    vector<PlacedBay> best_global;
-    double best_global_q = 1e100;
+    auto worker = [&](int r) {
+        int mode = r % 4;
 
-    for (int r = 0; r < RESTARTS; r++) {
-        cout << "Restart " << r + 1 << "/" << RESTARTS << "\n";
+        rng.seed(42 + r * 1000 + (int)case_dir[4]);
 
-        auto sol = build_initial(types, warehouse, obstacles, ceiling, wh_area);
+        cout << "Restart " << r + 1 << "/" << RESTARTS
+             << " started | mode=" << mode << "\n";
 
-        auto [ai, li, pi, qi] = details(sol, wh_area);
+        auto sol = build_initial(types, warehouse, obstacles, ceiling, wh_area, mode);
 
-        cout << "Initial -> bays=" << sol.size()
-             << " area=" << ai
-             << " loads=" << li
-             << " price=" << pi
-             << " Q=" << qi << "\n";
-
-        sol = hill(sol, types, warehouse, obstacles, ceiling, wh_area);
+        sol = hill(sol, types, warehouse, obstacles, ceiling, wh_area, mode);
 
         auto [af, lf, pf, qf] = details(sol, wh_area);
 
         bool valid = is_valid_solution(sol, warehouse, obstacles, ceiling);
 
-        cout << "Final   -> bays=" << sol.size()
+        cout << "Restart " << r + 1
+             << " -> bays=" << sol.size()
              << " area=" << af
              << " loads=" << lf
              << " price=" << pf
              << " Q=" << qf
-             << " valid=" << valid << "\n";
+             << " valid=" << valid
+             << "\n";
 
-        if (valid && qf < best_global_q) {
+        return sol;
+    };
+
+    vector<future<vector<PlacedBay>>> futures;
+
+    for (int r = 0; r < RESTARTS; r++) {
+        futures.push_back(async(launch::async, worker, r));
+    }
+
+    vector<PlacedBay> best_global;
+    double best_global_q = 1e100;
+
+    for (int r = 0; r < RESTARTS; r++) {
+        vector<PlacedBay> sol = futures[r].get();
+
+        auto [a, l, pr, q] = details(sol, wh_area);
+        bool valid = is_valid_solution(sol, warehouse, obstacles, ceiling);
+
+        if (valid && q < best_global_q) {
             best_global = sol;
-            best_global_q = qf;
+            best_global_q = q;
         }
     }
 
@@ -963,6 +1028,7 @@ void solve_case(const string& case_dir) {
          << " loads=" << l
          << " price=" << pr
          << " Q=" << q << "\n";
+
     cout << "Written: " << out_path << "\n";
 }
 
@@ -970,11 +1036,8 @@ int main() {
     for (auto& c : CASES) {
         ifstream f(c + "/warehouse.csv");
 
-        if (f.good()) {
-            solve_case(c);
-        } else {
-            cout << "Skipping " << c << "\n";
-        }
+        if (f.good()) solve_case(c);
+        else cout << "Skipping " << c << "\n";
     }
 
     return 0;

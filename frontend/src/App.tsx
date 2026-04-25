@@ -219,6 +219,18 @@ export default function App() {
               onCaseLoaded={handleCaseLoaded}
               onSolutionLoaded={(s) => { setSolution(s); startRevealAnimation(s.placements.length) }}
               onPartialLoad={handlePartialLoad}
+              onClear={() => {
+                setPolygon(null)
+                setObstacles(null)
+                setCeiling(null)
+                setBayTypes(null)
+                setWarehouseCase(null)
+                setRawFiles(null)
+                setSolution(null)
+                setRunHistory([])
+                setActiveRunId(null)
+                setSelectedTypeIds(new Set())
+              }}
               bayTypes={bayTypes ?? undefined}
             />
           </div>

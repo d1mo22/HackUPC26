@@ -1,4 +1,5 @@
 import os
+import math
 import pandas as pd
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
@@ -25,38 +26,91 @@ def read_case(case):
     return wh, obs, ceiling, bays, sol
 
 
-def cuboid_faces(x, y, z, w, d, h):
-    p = [
-        (x,     y,     z),
-        (x+w,   y,     z),
-        (x+w,   y+d,   z),
-        (x,     y+d,   z),
-        (x,     y,     z+h),
-        (x+w,   y,     z+h),
-        (x+w,   y+d,   z+h),
-        (x,     y+d,   z+h),
+def rotate_point(px, py, angle_deg):
+    a = math.radians(angle_deg)
+    ca = math.cos(a)
+    sa = math.sin(a)
+
+    return px * ca - py * sa, px * sa + py * ca
+
+
+def rect_points_2d(x, y, w, d, angle_deg):
+    local = [
+        (0, 0),
+        (w, 0),
+        (w, d),
+        (0, d),
     ]
 
-    return [
-        [p[0], p[1], p[2], p[3]],
-        [p[4], p[5], p[6], p[7]],
-        [p[0], p[1], p[5], p[4]],
-        [p[1], p[2], p[6], p[5]],
-        [p[2], p[3], p[7], p[6]],
-        [p[3], p[0], p[4], p[7]],
-    ]
+    points = []
+
+    for px, py in local:
+        rx, ry = rotate_point(px, py, angle_deg)
+        points.append((x + rx, y + ry))
+
+    return points
 
 
-def add_box(ax, x, y, z, w, d, h, color, alpha=0.45, edgecolor="black"):
-    faces = cuboid_faces(x, y, z, w, d, h)
-    box = Poly3DCollection(
+def prism_faces(points2d, z, h):
+    bottom = [(x, y, z) for x, y in points2d]
+    top = [(x, y, z + h) for x, y in points2d]
+
+    faces = []
+
+    faces.append(bottom)
+    faces.append(top)
+
+    n = len(points2d)
+
+    for i in range(n):
+        faces.append([
+            bottom[i],
+            bottom[(i + 1) % n],
+            top[(i + 1) % n],
+            top[i],
+        ])
+
+    return faces
+
+
+def add_prism(ax, points2d, z, h, color, alpha=0.45, edgecolor="black", linewidth=0.4):
+    faces = prism_faces(points2d, z, h)
+
+    poly = Poly3DCollection(
         faces,
         facecolors=color,
         edgecolors=edgecolor,
-        linewidths=0.4,
+        linewidths=linewidth,
         alpha=alpha
     )
-    ax.add_collection3d(box)
+
+    ax.add_collection3d(poly)
+
+
+def gap_points_2d(x, y, w, d, gap, angle_deg):
+    if gap <= 0:
+        return None
+
+    local = [
+        (0, d),
+        (w, d),
+        (w, d + gap),
+        (0, d + gap),
+    ]
+
+    points = []
+
+    for px, py in local:
+        rx, ry = rotate_point(px, py, angle_deg)
+        points.append((x + rx, y + ry))
+
+    return points
+
+
+def centroid(points):
+    sx = sum(p[0] for p in points)
+    sy = sum(p[1] for p in points)
+    return sx / len(points), sy / len(points)
 
 
 def draw_floor_polygon(ax, wh):
@@ -64,7 +118,7 @@ def draw_floor_polygon(ax, wh):
     ys = list(wh["y"]) + [wh["y"].iloc[0]]
     zs = [0] * len(xs)
 
-    ax.plot(xs, ys, zs, color="black", linewidth=2)
+    ax.plot(xs, ys, zs, color="black", linewidth=2.2)
 
 
 def draw_ceiling(ax, wh, ceiling):
@@ -96,9 +150,10 @@ def draw_ceiling(ax, wh, ceiling):
             verts,
             facecolors="cyan",
             edgecolors="cyan",
-            alpha=0.12,
+            alpha=0.10,
             linewidths=0.5
         )
+
         ax.add_collection3d(surf)
 
         ax.plot([x1, x2], [min_y, min_y], [h, h], color="cyan", linewidth=1)
@@ -108,54 +163,68 @@ def draw_ceiling(ax, wh, ceiling):
 def draw_case_3d(case):
     wh, obs, ceiling, bays, sol = read_case(case)
 
-    fig = plt.figure(figsize=(12, 9))
+    fig = plt.figure(figsize=(13, 10))
     ax = fig.add_subplot(111, projection="3d")
 
     draw_floor_polygon(ax, wh)
     draw_ceiling(ax, wh, ceiling)
 
-    # Obstacles
     for _, o in obs.iterrows():
         x = int(o["x"])
         y = int(o["y"])
         w = int(o["w"])
         d = int(o["d"])
 
-        add_box(ax, x, y, 0, w, d, 500, color="red", alpha=0.35, edgecolor="darkred")
+        pts = rect_points_2d(x, y, w, d, 0)
+        add_prism(
+            ax,
+            pts,
+            0,
+            500,
+            color="red",
+            alpha=0.35,
+            edgecolor="darkred",
+            linewidth=0.6
+        )
 
     cmap = plt.get_cmap("tab20")
     unique_ids = sorted(sol["Id"].unique())
     color_by_id = {bid: cmap(i % 20) for i, bid in enumerate(unique_ids)}
 
-    # Bays + gaps
+    all_x = list(wh["x"])
+    all_y = list(wh["y"])
+
     for _, s in sol.iterrows():
-        bay = bays[bays["id"] == int(s["Id"])].iloc[0]
+        bid = int(s["Id"])
+        bay = bays[bays["id"] == bid].iloc[0]
 
         w = int(bay["w"])
         d = int(bay["d"])
         h = int(bay["h"])
         gap = int(bay["gap"])
 
-        rot = int(s["Rotation"])
-
-        if rot == 1:
-            w, d = d, w
-
         x = int(s["X"])
         y = int(s["Y"])
-        bid = int(s["Id"])
+        angle = int(s["Rotation"])
 
-        add_box(
-            ax, x, y, 0,
-            w, d, h,
+        bay_pts = rect_points_2d(x, y, w, d, angle)
+
+        add_prism(
+            ax,
+            bay_pts,
+            0,
+            h,
             color=color_by_id[bid],
-            alpha=0.60,
-            edgecolor="black"
+            alpha=0.65,
+            edgecolor="black",
+            linewidth=0.35
         )
 
+        cx, cy = centroid(bay_pts)
+
         ax.text(
-            x + w / 2,
-            y + d / 2,
+            cx,
+            cy,
             h + 100,
             str(bid),
             ha="center",
@@ -163,39 +232,48 @@ def draw_case_3d(case):
             fontsize=7
         )
 
-        # gap as blue transparent low rectangle
-        if gap > 0:
-            if rot == 0:
-                gx, gy, gw, gd = x, y + d, w, gap
-            else:
-                gx, gy, gw, gd = x + w, y, gap, d
+        all_x.extend([p[0] for p in bay_pts])
+        all_y.extend([p[1] for p in bay_pts])
 
-            add_box(
-                ax, gx, gy, 0,
-                gw, gd, 80,
+        gap_pts = gap_points_2d(x, y, w, d, gap, angle)
+
+        if gap_pts is not None:
+            add_prism(
+                ax,
+                gap_pts,
+                0,
+                80,
                 color="blue",
                 alpha=0.18,
-                edgecolor="blue"
+                edgecolor="blue",
+                linewidth=0.35
             )
 
-    ax.set_title(f"{case} - 3D warehouse solution")
+            all_x.extend([p[0] for p in gap_pts])
+            all_y.extend([p[1] for p in gap_pts])
+
+    ax.set_title(f"{case} - 3D warehouse solution with arbitrary angles")
     ax.set_xlabel("X")
     ax.set_ylabel("Y")
     ax.set_zlabel("Height")
 
-    ax.set_xlim(int(wh["x"].min()), int(wh["x"].max()))
-    ax.set_ylim(int(wh["y"].min()), int(wh["y"].max()))
+    margin = 500
+
+    ax.set_xlim(min(all_x) - margin, max(all_x) + margin)
+    ax.set_ylim(min(all_y) - margin, max(all_y) + margin)
 
     max_z = max(
         int(ceiling["h"].max()) if len(ceiling) else 1000,
         int(bays["h"].max()) if len(bays) else 1000
     )
+
     ax.set_zlim(0, max_z * 1.15)
 
     ax.view_init(elev=28, azim=-55)
 
     plt.tight_layout()
-    out = f"{case}_3d.png"
+
+    out = f"{case}_3d_angles.png"
     plt.savefig(out, dpi=200)
     plt.show()
 

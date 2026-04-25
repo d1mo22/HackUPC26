@@ -1,7 +1,8 @@
 import os
+import math
 import pandas as pd
 import matplotlib.pyplot as plt
-from matplotlib.patches import Patch
+from matplotlib.patches import Polygon as MplPolygon, Patch
 
 CASES = ["Case0", "Case1", "Case2", "Case3"]
 
@@ -24,92 +25,189 @@ def read_case(case):
     return wh.astype(int), obs.astype(int), bays.astype(int), sol.astype(int)
 
 
+def rotate_point(px, py, angle_deg):
+    a = math.radians(angle_deg)
+    ca = math.cos(a)
+    sa = math.sin(a)
+
+    return px * ca - py * sa, px * sa + py * ca
+
+
+def rotated_rect_points(x, y, w, d, angle_deg):
+    local = [
+        (0, 0),
+        (w, 0),
+        (w, d),
+        (0, d),
+    ]
+
+    pts = []
+
+    for px, py in local:
+        rx, ry = rotate_point(px, py, angle_deg)
+        pts.append((x + rx, y + ry))
+
+    return pts
+
+
+def rotated_gap_points(x, y, w, d, gap, angle_deg):
+    if gap <= 0:
+        return None
+
+    local = [
+        (0, d),
+        (w, d),
+        (w, d + gap),
+        (0, d + gap),
+    ]
+
+    pts = []
+
+    for px, py in local:
+        rx, ry = rotate_point(px, py, angle_deg)
+        pts.append((x + rx, y + ry))
+
+    return pts
+
+
+def centroid(points):
+    return (
+        sum(p[0] for p in points) / len(points),
+        sum(p[1] for p in points) / len(points),
+    )
+
+
 def draw_case(case, ax):
     wh, obs, bays, sol = read_case(case)
 
     px = list(wh["x"]) + [wh["x"].iloc[0]]
     py = list(wh["y"]) + [wh["y"].iloc[0]]
-    ax.plot(px, py, linewidth=2.5, color="black", zorder=5)
+    ax.plot(px, py, linewidth=2.5, color="black", zorder=10)
+
+    all_x = list(wh["x"])
+    all_y = list(wh["y"])
 
     for _, o in obs.iterrows():
+        ox = int(o["x"])
+        oy = int(o["y"])
+        ow = int(o["w"])
+        od = int(o["d"])
+
+        obs_pts = rotated_rect_points(ox, oy, ow, od, 0)
+
         ax.add_patch(
-            plt.Rectangle(
-                (o["x"], o["y"]), o["w"], o["d"],
-                facecolor="red", edgecolor="darkred",
-                alpha=0.45, linewidth=1.5, zorder=4
+            MplPolygon(
+                obs_pts,
+                closed=True,
+                facecolor="red",
+                edgecolor="darkred",
+                alpha=0.45,
+                linewidth=1.5,
+                zorder=7
             )
         )
+
         ax.text(
-            o["x"] + o["w"] / 2, o["y"] + o["d"] / 2,
-            "OBS", ha="center", va="center",
-            fontsize=7, fontweight="bold", color="darkred", zorder=6
+            ox + ow / 2,
+            oy + od / 2,
+            "OBS",
+            ha="center",
+            va="center",
+            fontsize=7,
+            fontweight="bold",
+            color="darkred",
+            zorder=12
         )
+
+        all_x.extend([p[0] for p in obs_pts])
+        all_y.extend([p[1] for p in obs_pts])
 
     cmap = plt.get_cmap("tab20")
     unique_ids = sorted(sol["Id"].unique())
     color_by_id = {bid: cmap(i % 20) for i, bid in enumerate(unique_ids)}
 
-    for idx, s in sol.iterrows():
-        bay = bays[bays["id"] == s["Id"]].iloc[0]
+    for _, s in sol.iterrows():
+        bid = int(s["Id"])
+        bay = bays[bays["id"] == bid].iloc[0]
 
         w = int(bay["w"])
         d = int(bay["d"])
         gap = int(bay["gap"])
 
-        if int(s["Rotation"]) == 1:
-            w, d = d, w
-
         x = int(s["X"])
         y = int(s["Y"])
-        bid = int(s["Id"])
+        angle = int(s["Rotation"])
+
         color = color_by_id[bid]
 
+        bay_pts = rotated_rect_points(x, y, w, d, angle)
+
         ax.add_patch(
-            plt.Rectangle(
-                (x, y), w, d,
-                facecolor=color, edgecolor="black",
-                alpha=0.55, linewidth=1.0, zorder=2
+            MplPolygon(
+                bay_pts,
+                closed=True,
+                facecolor=color,
+                edgecolor="black",
+                alpha=0.58,
+                linewidth=1.0,
+                zorder=4
             )
         )
 
+        cx, cy = centroid(bay_pts)
+
         ax.text(
-            x + w / 2, y + d / 2,
-            str(bid),
-            ha="center", va="center",
-            fontsize=6, color="black",
-            bbox=dict(facecolor="white", alpha=0.65, edgecolor="none", pad=0.5),
-            zorder=7
+            cx,
+            cy,
+            f"{bid}\n{angle}°",
+            ha="center",
+            va="center",
+            fontsize=6,
+            color="black",
+            bbox=dict(facecolor="white", alpha=0.70, edgecolor="none", pad=0.5),
+            zorder=13
         )
 
-        if gap > 0:
-            if int(s["Rotation"]) == 0:
-                gx, gy, gw, gd = x, y + d, w, gap
-                start = (gx + gw / 2, gy + gd / 2)
-                end = (x + w / 2, y + d)
-            else:
-                gx, gy, gw, gd = x + w, y, gap, d
-                start = (gx + gw / 2, gy + gd / 2)
-                end = (x + w, y + d / 2)
+        all_x.extend([p[0] for p in bay_pts])
+        all_y.extend([p[1] for p in bay_pts])
 
+        gap_pts = rotated_gap_points(x, y, w, d, gap, angle)
+
+        if gap_pts is not None:
             ax.add_patch(
-                plt.Rectangle(
-                    (gx, gy), gw, gd,
-                    facecolor="none", edgecolor="blue",
-                    linestyle="--", linewidth=0.9, zorder=3
+                MplPolygon(
+                    gap_pts,
+                    closed=True,
+                    facecolor="none",
+                    edgecolor="blue",
+                    linestyle="--",
+                    linewidth=1.0,
+                    zorder=5
                 )
             )
 
+            gcx, gcy = centroid(gap_pts)
+
             ax.annotate(
-                "", xy=end, xytext=start,
+                "",
+                xy=(cx, cy),
+                xytext=(gcx, gcy),
                 arrowprops=dict(arrowstyle="->", color="blue", linewidth=0.8),
-                zorder=8
+                zorder=14
             )
+
+            all_x.extend([p[0] for p in gap_pts])
+            all_y.extend([p[1] for p in gap_pts])
 
     ax.set_title(case, fontsize=13, fontweight="bold")
     ax.set_aspect("equal", adjustable="box")
     ax.grid(True, linewidth=0.3, alpha=0.35)
     ax.set_xlabel("X")
     ax.set_ylabel("Y")
+
+    margin = 500
+    ax.set_xlim(min(all_x) - margin, max(all_x) + margin)
+    ax.set_ylim(min(all_y) - margin, max(all_y) + margin)
 
 
 def main():
@@ -127,18 +225,19 @@ def main():
 
     legend_items = [
         Patch(facecolor="red", edgecolor="darkred", alpha=0.45, label="Obstacle"),
-        Patch(facecolor="gray", edgecolor="black", alpha=0.55, label="Bay"),
-        Patch(facecolor="none", edgecolor="blue", linestyle="--", label="Gap / access"),
+        Patch(facecolor="gray", edgecolor="black", alpha=0.58, label="Bay rotated footprint"),
+        Patch(facecolor="none", edgecolor="blue", linestyle="--", label="Gap / access rotated footprint"),
         Patch(facecolor="none", edgecolor="black", label="Warehouse boundary"),
     ]
 
     fig.legend(handles=legend_items, loc="upper center", ncol=4, fontsize=11)
-    fig.suptitle("Warehouse solutions", fontsize=18, fontweight="bold")
+    fig.suptitle("Warehouse solutions - true rotated footprints", fontsize=18, fontweight="bold")
+
     plt.tight_layout(rect=[0, 0, 1, 0.96])
-    plt.savefig("all_solutions.png", dpi=200)
+    plt.savefig("all_solutions_angles.png", dpi=220)
     plt.show()
 
-    print("Guardado: all_solutions.png")
+    print("Guardado: all_solutions_angles.png")
 
 
 if __name__ == "__main__":

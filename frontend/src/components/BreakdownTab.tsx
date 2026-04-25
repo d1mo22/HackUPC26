@@ -15,26 +15,26 @@ export default function BreakdownTab({ solution, warehouseCase }: Props) {
     counts.set(p.id, (counts.get(p.id) ?? 0) + 1)
   }
 
-  // Build rows: only types present in solution, sorted by price/loads desc
+  // Build rows: only types present in solution, sorted by price/loads asc
   const rows = [...counts.keys()]
     .map(id => {
       const type = typeMap.get(id)!
       return { id, type, count: counts.get(id)!, ratio: type.price / type.loads }
     })
-    .sort((a, b) => b.ratio - a.ratio)
+    .sort((a, b) => a.ratio - b.ratio)
 
   if (rows.length === 0) return (
     <div style={{ padding: 16, color: 'var(--color-muted)', fontSize: 13 }}>No solution loaded.</div>
   )
 
-  const maxRatio = rows[0].ratio
+  const maxRatio = rows[rows.length - 1].ratio
   const bestId = rows[0].id
   const worstId = rows[rows.length - 1].id
 
   // Best available type across all bay types (not just used ones)
   const bestAvailable = warehouseCase.bayTypes
     .map(t => ({ id: t.id, ratio: t.price / t.loads }))
-    .sort((a, b) => b.ratio - a.ratio)[0]
+    .sort((a, b) => a.ratio - b.ratio)[0]
 
   const showTip = rows.length > 1 && bestAvailable.id !== worstId
 

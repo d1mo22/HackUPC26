@@ -8,16 +8,16 @@ import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const SOLVER_SRC = join(__dirname, '../../solver/solver.cpp')
-const SOLVER_BIN = join(tmpdir(), 'warehouse-solver')
+const SOLVER_DIR = join(__dirname, '../../solver')
+const SOLVER_BIN = join(SOLVER_DIR, 'solver')
 
-// Compile the C++ solver on startup
+// Build the C++ solver on startup
 try {
-  console.log('Compiling solver...')
-  execFileSync('g++', ['-O3', '-std=c++17', '-o', SOLVER_BIN, SOLVER_SRC])
-  console.log('Solver compiled:', SOLVER_BIN)
+  console.log('Building solver...')
+  execFileSync('make', ['-C', SOLVER_DIR], { stdio: 'inherit' })
+  console.log('Solver ready:', SOLVER_BIN)
 } catch (e) {
-  console.error('Failed to compile solver:', e)
+  console.error('Failed to build solver:', e)
   process.exit(1)
 }
 

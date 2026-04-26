@@ -21,6 +21,7 @@ solver/solver_*
 solver/*.o
 solver/test_init
 *.exe
+*.o
 
 # Generated images / scratch outputs
 solver/*.png

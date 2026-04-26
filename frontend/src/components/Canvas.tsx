@@ -50,9 +50,7 @@ function draw2D(
   ctx.closePath()
   ctx.fillStyle = theme.canvasFloor
   ctx.fill()
-  ctx.strokeStyle = theme.canvasGrid
-  ctx.lineWidth = 1.5
-  ctx.stroke()
+  // Stroke is redrawn on top of everything at end of draw2D — skip here to avoid double line
 
   // Ceiling overlay — column tint clipped to warehouse polygon (darker = lower ceiling)
   if (showCeiling && ceiling.length > 0) {
@@ -82,7 +80,7 @@ function draw2D(
   }
       ctx.textBaseline = 'top'
 
-  // Obstacles
+  // Obstacles — fill only here; border + label redrawn in Pass 3 on top of bays
   for (const obs of obstacles) {
     const sx = t.offsetX + obs.x * t.scale
     const sy = t.offsetY - (obs.y + obs.d) * t.scale
@@ -90,16 +88,6 @@ function draw2D(
     const sh = obs.d * t.scale
     ctx.fillStyle = 'rgba(239,68,68,0.25)'
     ctx.fillRect(sx, sy, sw, sh)
-    ctx.strokeStyle = '#ef4444'
-    ctx.lineWidth = 1
-    ctx.strokeRect(sx, sy, sw, sh)
-    if (sw > 24 && sh > 12) {
-      ctx.fillStyle = '#ef4444'
-      ctx.font = 'bold 9px monospace'
-      ctx.textAlign = 'center'
-      ctx.textBaseline = 'middle'
-      ctx.fillText('OBS', sx + sw / 2, sy + sh / 2)
-    }
   }
 
   // Bays
@@ -176,6 +164,35 @@ function draw2D(
       ctx.strokeRect(sx - 0.5, sy - 0.5, sw + 1, sh + 1)
     }
   }
+
+  // Pass 3: obstacles redrawn on top so bay fills never cover their red border
+  for (const obs of obstacles) {
+    const sx = t.offsetX + obs.x * t.scale
+    const sy = t.offsetY - (obs.y + obs.d) * t.scale
+    const sw = obs.w * t.scale
+    const sh = obs.d * t.scale
+    ctx.strokeStyle = '#ef4444'
+    ctx.lineWidth = 1.5
+    ctx.strokeRect(sx, sy, sw, sh)
+    if (sw > 24 && sh > 12) {
+      ctx.fillStyle = '#ef4444'
+      ctx.font = 'bold 9px monospace'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText('OBS', sx + sw / 2, sy + sh / 2)
+    }
+  }
+
+  // Pass 4: redraw warehouse boundary on top so it's never hidden by bay fills
+  ctx.beginPath()
+  for (let i = 0; i < polygon.length; i++) {
+    const p = w2s(polygon[i].x, polygon[i].y, t)
+    if (i === 0) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y)
+  }
+  ctx.closePath()
+  ctx.strokeStyle = theme.canvasGrid
+  ctx.lineWidth = 1.5
+  ctx.stroke()
 }
 
 

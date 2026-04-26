@@ -13,6 +13,7 @@
 #include <climits>
 #include <filesystem>
 #include <functional>
+#include <iomanip>
 
 using namespace std;
 using Clock = chrono::steady_clock;
@@ -40,8 +41,6 @@ const double DIAGONAL_COMPACT_MIN_SHIFT = 25.0;
 const int DIAGONAL_COMPACT_MAX_BAYS = 12;
 const int DIAGONAL_COMPACT_BINARY_ITERS = 18;
 const int SHARED_GAP_MAX_ANCHORS = 24;
-const int WALL_BUDGET = 25;
-
 const double EPS = 1e-7;
 const double PI = acos(-1.0);
 
@@ -141,17 +140,15 @@ struct OperatorStats {
     long long improved[NUM_OPERATORS] = {};
 };
 
-const vector<string> OP_NAMES = {
-    "add_bay",
-    "replace_bay",
-    "fill_aggressive",
-    "remove_k_and_refill",
-    "shared_gap_refill",
-    "upgrade_bay",
-    "rotate_compact_and_add",
-    "add_45_degree_bay",
-    "position_perturb_and_add",
-    "split_bay"
+// Bundles the read-only context every operator needs.
+// Replaces the 6-argument tail (types, warehouse, obstacles, ceiling, wh_area, mode).
+struct OperatorContext {
+    const vector<BayType>& types;
+    const vector<Point>& warehouse;
+    const vector<Obstacle>& obstacles;
+    const vector<pair<double,double>>& ceiling;
+    double wh_area;
+    int mode;
 };
 
 vector<int> ANGLES = {
@@ -1038,14 +1035,15 @@ PlacedBay make_candidate(const BayType& t, double x, double y, int angle) {
 
 bool add_bay(
     vector<PlacedBay>& sol,
-    const vector<BayType>& types,
-    const vector<Point>& warehouse,
-    const vector<Obstacle>& obstacles,
-    const vector<pair<double, double>>& ceiling,
-    double wh_area,
-    int mode,
+    const OperatorContext& ctx,
     const vector<int>& angles_source = ANGLES
 ) {
+    const auto& types    = ctx.types;
+    const auto& warehouse = ctx.warehouse;
+    const auto& obstacles = ctx.obstacles;
+    const auto& ceiling   = ctx.ceiling;
+    double wh_area = ctx.wh_area;
+    int mode       = ctx.mode;
     auto pts = candidate_points(warehouse, obstacles, sol);
 
     vector<BayType> sorted_types = types;
@@ -1112,15 +1110,10 @@ bool add_bay(
 
 void fill_aggressive(
     vector<PlacedBay>& sol,
-    const vector<BayType>& types,
-    const vector<Point>& warehouse,
-    const vector<Obstacle>& obstacles,
-    const vector<pair<double, double>>& ceiling,
-    double wh_area,
-    int mode
+    const OperatorContext& ctx
 ) {
     for (int i = 0; i < 5; i++) {
-        if (!add_bay(sol, types, warehouse, obstacles, ceiling, wh_area, mode)) {
+        if (!add_bay(sol, ctx)) {
             break;
         }
     }
@@ -1128,13 +1121,9 @@ void fill_aggressive(
 
 void remove_k_and_refill(
     vector<PlacedBay>& sol,
-    const vector<BayType>& types,
-    const vector<Point>& warehouse,
-    const vector<Obstacle>& obstacles,
-    const vector<pair<double, double>>& ceiling,
-    double wh_area,
-    int mode
+    const OperatorContext& ctx
 ) {
+    double wh_area = ctx.wh_area;
     if (sol.empty()) return;
 
     vector<PlacedBay> backup = sol;
@@ -1147,7 +1136,7 @@ void remove_k_and_refill(
     }
 
     for (int i = 0; i < k + 3; i++) {
-        add_bay(sol, types, warehouse, obstacles, ceiling, wh_area, mode);
+        add_bay(sol, ctx);
     }
 
     if (quality(sol, wh_area) > quality(backup, wh_area)) {
@@ -1157,13 +1146,13 @@ void remove_k_and_refill(
 
 void upgrade_bay(
     vector<PlacedBay>& sol,
-    const vector<BayType>& types,
-    const vector<Point>& warehouse,
-    const vector<Obstacle>& obstacles,
-    const vector<pair<double, double>>& ceiling,
-    double wh_area,
-    int mode
+    const OperatorContext& ctx
 ) {
+    const auto& types    = ctx.types;
+    const auto& warehouse = ctx.warehouse;
+    const auto& obstacles = ctx.obstacles;
+    const auto& ceiling   = ctx.ceiling;
+    double wh_area = ctx.wh_area;
     if (sol.empty()) return;
 
     int idx = rng() % sol.size();
@@ -1221,13 +1210,9 @@ void upgrade_bay(
 
 void replace_bay(
     vector<PlacedBay>& sol,
-    const vector<BayType>& types,
-    const vector<Point>& warehouse,
-    const vector<Obstacle>& obstacles,
-    const vector<pair<double, double>>& ceiling,
-    double wh_area,
-    int mode
+    const OperatorContext& ctx
 ) {
+    double wh_area = ctx.wh_area;
     if (sol.empty()) return;
 
     vector<PlacedBay> backup = sol;
@@ -1235,7 +1220,7 @@ void replace_bay(
     int idx = rng() % sol.size();
     sol.erase(sol.begin() + idx);
 
-    bool ok = add_bay(sol, types, warehouse, obstacles, ceiling, wh_area, mode);
+    bool ok = add_bay(sol, ctx);
 
     if (!ok || quality(sol, wh_area) > quality(backup, wh_area)) {
         sol = backup;
@@ -1252,13 +1237,13 @@ void replace_bay(
 // Therefore the operator is gated to rotated victims only.
 void split_bay(
     vector<PlacedBay>& sol,
-    const vector<BayType>& types,
-    const vector<Point>& warehouse,
-    const vector<Obstacle>& obstacles,
-    const vector<pair<double, double>>& ceiling,
-    double wh_area,
-    int /*mode*/
+    const OperatorContext& ctx
 ) {
+    const auto& types    = ctx.types;
+    const auto& warehouse = ctx.warehouse;
+    const auto& obstacles = ctx.obstacles;
+    const auto& ceiling   = ctx.ceiling;
+    double wh_area = ctx.wh_area;
     if (sol.empty()) return;
 
     vector<PlacedBay> backup = sol;
@@ -1578,13 +1563,14 @@ bool add_shared_gap_bay(
 
 void shared_gap_refill(
     vector<PlacedBay>& sol,
-    const vector<BayType>& types,
-    const vector<Point>& warehouse,
-    const vector<Obstacle>& obstacles,
-    const vector<pair<double, double>>& ceiling,
-    double wh_area,
-    int mode
+    const OperatorContext& ctx
 ) {
+    const auto& types    = ctx.types;
+    const auto& warehouse = ctx.warehouse;
+    const auto& obstacles = ctx.obstacles;
+    const auto& ceiling   = ctx.ceiling;
+    double wh_area = ctx.wh_area;
+    int mode       = ctx.mode;
     if (sol.empty()) return;
 
     vector<PlacedBay> backup = sol;
@@ -1637,7 +1623,7 @@ void shared_gap_refill(
 
     for (int i = 0; i < k + 5; i++) {
         if (!add_shared_gap_bay(sol, types, warehouse, obstacles, ceiling, wh_area, mode)) {
-            add_bay(sol, types, warehouse, obstacles, ceiling, wh_area, mode, shared_angles);
+            add_bay(sol, ctx, shared_angles);
         }
     }
 
@@ -1648,13 +1634,14 @@ void shared_gap_refill(
 
 void rotate_compact_and_add(
     vector<PlacedBay>& sol,
-    const vector<BayType>& types,
-    const vector<Point>& warehouse,
-    const vector<Obstacle>& obstacles,
-    const vector<pair<double, double>>& ceiling,
-    double wh_area,
-    int mode
+    const OperatorContext& ctx
 ) {
+    const auto& types    = ctx.types;
+    const auto& warehouse = ctx.warehouse;
+    const auto& obstacles = ctx.obstacles;
+    const auto& ceiling   = ctx.ceiling;
+    double wh_area = ctx.wh_area;
+    int mode       = ctx.mode;
     if (sol.empty()) return;
 
     vector<PlacedBay> backup = sol;
@@ -1707,7 +1694,7 @@ void rotate_compact_and_add(
 
             bool added = add_shared_gap_bay(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
             if (!added) {
-                add_bay(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
+                add_bay(candidate, ctx);
             }
 
             double q = quality(candidate, wh_area);
@@ -1727,13 +1714,12 @@ void rotate_compact_and_add(
 
 void add_45_degree_bay(
     vector<PlacedBay>& sol,
-    const vector<BayType>& types,
-    const vector<Point>& warehouse,
-    const vector<Obstacle>& obstacles,
-    const vector<pair<double, double>>& ceiling,
-    double wh_area,
-    int mode
+    const OperatorContext& ctx
 ) {
+    const auto& warehouse = ctx.warehouse;
+    const auto& obstacles = ctx.obstacles;
+    const auto& ceiling   = ctx.ceiling;
+    double wh_area = ctx.wh_area;
     vector<PlacedBay> backup = sol;
     double backup_q = quality(backup, wh_area);
 
@@ -1741,7 +1727,7 @@ void add_45_degree_bay(
 
     compact_diagonal_bays_on_axes(sol, warehouse, obstacles, ceiling);
 
-    if (!add_bay(sol, types, warehouse, obstacles, ceiling, wh_area, mode, diagonal_angles)) {
+    if (!add_bay(sol, ctx, diagonal_angles)) {
         sol = backup;
         return;
     }
@@ -1911,7 +1897,8 @@ vector<PlacedBay> build_initial(
     }
 
     for (int i = 0; i < INITIAL_ADDS; i++) {
-        if (!add_bay(sol, types, warehouse, obstacles, ceiling, wh_area, mode)) {
+        OperatorContext ctx{types, warehouse, obstacles, ceiling, wh_area, mode};
+        if (!add_bay(sol, ctx)) {
             break;
         }
     }
@@ -1941,13 +1928,14 @@ bool warehouse_is_axis_aligned(const vector<Point>& warehouse) {
 // has to come from the follow-up add_bay.
 void position_perturb_and_add(
     vector<PlacedBay>& sol,
-    const vector<BayType>& types,
-    const vector<Point>& warehouse,
-    const vector<Obstacle>& obstacles,
-    const vector<pair<double, double>>& ceiling,
-    double wh_area,
-    int mode
+    const OperatorContext& ctx
 ) {
+    const auto& types    = ctx.types;
+    const auto& warehouse = ctx.warehouse;
+    const auto& obstacles = ctx.obstacles;
+    const auto& ceiling   = ctx.ceiling;
+    double wh_area = ctx.wh_area;
+    int mode       = ctx.mode;
     if (sol.empty()) return;
 
     vector<PlacedBay> backup = sol;
@@ -2031,41 +2019,214 @@ void position_perturb_and_add(
     }
 }
 
+// ─── Operator table ───────────────────────────────────────────────────────────
+// Each entry holds the operator function and its prior weights for axis-aligned
+// vs angled warehouses. build_active_ops constructs the weighted vector by
+// pushing the op index `weight` times, exactly matching the old hand-coded loops.
+struct OperatorEntry {
+    const char* name;
+    void (*fn)(vector<PlacedBay>&, const OperatorContext&);
+    int weight_axis;    // times to push into active_ops for axis-aligned warehouses
+    int weight_angled;  // times to push for angled/mixed warehouses
+};
+
+// Forward-declare so the table compiles; operator bodies are above.
+static void op_add_bay            (vector<PlacedBay>& s, const OperatorContext& c) { add_bay(s, c); }
+static void op_replace_bay        (vector<PlacedBay>& s, const OperatorContext& c) { replace_bay(s, c); }
+static void op_fill_aggressive    (vector<PlacedBay>& s, const OperatorContext& c) { fill_aggressive(s, c); }
+static void op_remove_k_and_refill(vector<PlacedBay>& s, const OperatorContext& c) { remove_k_and_refill(s, c); }
+static void op_shared_gap_refill  (vector<PlacedBay>& s, const OperatorContext& c) { shared_gap_refill(s, c); }
+static void op_upgrade_bay        (vector<PlacedBay>& s, const OperatorContext& c) { upgrade_bay(s, c); }
+static void op_rotate_compact     (vector<PlacedBay>& s, const OperatorContext& c) { rotate_compact_and_add(s, c); }
+static void op_add_45             (vector<PlacedBay>& s, const OperatorContext& c) { add_45_degree_bay(s, c); }
+static void op_position_perturb   (vector<PlacedBay>& s, const OperatorContext& c) { position_perturb_and_add(s, c); }
+static void op_split_bay          (vector<PlacedBay>& s, const OperatorContext& c) { split_bay(s, c); }
+
+// Index must match OP_NAMES and the op == N checks in operator stats.
+static const OperatorEntry OPERATORS[NUM_OPERATORS] = {
+    // name                    fn                        axis  angled
+    {"add_bay",                op_add_bay,                4,    4},
+    {"replace_bay",            op_replace_bay,            2,    2},
+    {"fill_aggressive",        op_fill_aggressive,        0,    0},  // weight 0 = never in active_ops
+    {"remove_k_and_refill",    op_remove_k_and_refill,    6,    6},
+    {"shared_gap_refill",      op_shared_gap_refill,      8,    8},
+    {"upgrade_bay",            op_upgrade_bay,            4,    4},
+    {"rotate_compact_and_add", op_rotate_compact,         1,    4},
+    {"add_45_degree_bay",      op_add_45,                 1,    2},
+    {"position_perturb_and_add",op_position_perturb,     2,    1},
+    {"split_bay",              op_split_bay,              2,    2},
+};
+
+// Replaces the old imperative build_active_ops: reads weights from OPERATORS[].
 vector<int> build_active_ops(bool axis_aligned) {
     vector<int> ops;
-    // op 0 (add_bay): re-enable post-init growth — was missing entirely before
-    for (int i = 0; i < 4; i++) ops.push_back(0);
-    // op 1 (replace_bay): cheap diversification, position-changing
-    for (int i = 0; i < 2; i++) ops.push_back(1);
-    // ops 3,4,5: universal heavy hitters, weighted by observed improvement rate
-    for (int i = 0; i < 6; i++) ops.push_back(3);
-    for (int i = 0; i < 8; i++) ops.push_back(4);
-    for (int i = 0; i < 4; i++) ops.push_back(5);
-    // ops 6,7: keep available everywhere (some axis-aligned cases still benefit),
-    // but with reduced weight when warehouse is axis-aligned
-    if (axis_aligned) {
-        ops.push_back(6);
-        ops.push_back(7);
-    } else {
-        for (int i = 0; i < 4; i++) ops.push_back(6);
-        for (int i = 0; i < 2; i++) ops.push_back(7);
+    for (int i = 0; i < NUM_OPERATORS; i++) {
+        int w = axis_aligned ? OPERATORS[i].weight_axis : OPERATORS[i].weight_angled;
+        for (int j = 0; j < w; j++) ops.push_back(i);
     }
-    // op 8 (position_perturb_and_add): orthogonal-bay symmetric of op 6 for
-    // axis-aligned cases. Kept low-weight because each call is expensive
-    // (8 candidate positions × valid_candidate + add_shared_gap_bay).
-    if (axis_aligned) {
-        for (int i = 0; i < 2; i++) ops.push_back(8);
-    } else {
-        ops.push_back(8);
-    }
-    // op 9 (split_bay): replaces one large bay with multiple smaller ones inside
-    // its footprint. Rate is unknown; start at weight 2 (same scale as op 1) and
-    // let adaptive sampling tune it. Each call is cheap (one bay removed, up to
-    // 12 placement attempts inside one bbox).
-    for (int i = 0; i < 2; i++) ops.push_back(9);
     return ops;
 }
 
+// ─── OperatorSelector ────────────────────────────────────────────────────────
+// Encapsulates warmup + adaptive UCB-style sampling + exponential decay.
+// Extracted from the duplicated logic in hill() and hill_sa().
+//
+// Calling contract (must match old order to preserve RNG stream):
+//   int op = sel.pick(iter);   // may call rng() once (uniform_real_distribution)
+//   ... apply op ...
+//   sel.record(op, improved);
+//   sel.maybe_decay(iter);
+class OperatorSelector {
+public:
+    static constexpr int WARMUP_ITERS = 150;
+    static constexpr int DECAY_PERIOD = 300;
+
+    explicit OperatorSelector(const vector<int>& active_ops) : active_ops_(active_ops) {
+        for (int o : active_ops_) {
+            prior_count_[o]++;
+            if (find(unique_ops_.begin(), unique_ops_.end(), o) == unique_ops_.end()) {
+                unique_ops_.push_back(o);
+            }
+        }
+    }
+
+    int pick(int iter) {
+        if (iter < WARMUP_ITERS) {
+            return active_ops_[rng() % active_ops_.size()];
+        }
+        // Adaptive: weight = prior * (improved+1)/(tried+4)
+        double total = 0.0;
+        double w[NUM_OPERATORS] = {};
+        for (int o : unique_ops_) {
+            double r = (double)(roll_improved_[o] + 1) / (double)(roll_tried_[o] + 4);
+            w[o] = (double)prior_count_[o] * r;
+            total += w[o];
+        }
+        double pick = uniform_real_distribution<double>(0.0, total)(rng);
+        double acc = 0.0;
+        int op = unique_ops_.back();
+        for (int o : unique_ops_) {
+            acc += w[o];
+            if (pick <= acc) { op = o; break; }
+        }
+        return op;
+    }
+
+    void record(int op, bool improved) {
+        roll_tried_[op]++;
+        if (improved) roll_improved_[op]++;
+    }
+
+    void maybe_decay(int iter) {
+        if (iter % DECAY_PERIOD == 0) {
+            for (int o : unique_ops_) {
+                roll_tried_[o]   /= 2;
+                roll_improved_[o] /= 2;
+            }
+        }
+    }
+
+private:
+    vector<int> active_ops_;
+    vector<int> unique_ops_;
+    array<int,       NUM_OPERATORS> prior_count_{};
+    array<long long, NUM_OPERATORS> roll_tried_{};
+    array<long long, NUM_OPERATORS> roll_improved_{};
+};
+
+// ─── run_search ───────────────────────────────────────────────────────────────
+// Single loop that drives both hill-climbing and simulated annealing.
+// Unifies the ~95%-identical hill() and hill_sa() bodies.
+//
+// use_sa=false → strict improvement (original hill()).
+// use_sa=true  → SA acceptance with linear cooling (original hill_sa()).
+//
+// The RNG call order is preserved verbatim from both originals:
+//   1. sel.pick() — may draw from rng for adaptive selection
+//   2. OPERATORS[op].fn() — operators consume rng internally
+//   3. SA only: uniform_real_distribution draw for Metropolis criterion
+vector<PlacedBay> run_search(
+    vector<PlacedBay> sol,
+    const OperatorContext& ctx,
+    OperatorStats& stats,
+    bool axis_aligned,
+    Clock::time_point deadline,
+    bool use_sa,
+    double t0_frac = 0.05
+) {
+    double wh_area = ctx.wh_area;
+
+    // SA state
+    auto sa_start = Clock::now();
+    double total_seconds = chrono::duration<double>(deadline - sa_start).count();
+    if (total_seconds <= 0.0) total_seconds = 1.0;
+
+    vector<PlacedBay> current = sol;
+    double current_q = quality(current, wh_area);
+
+    vector<PlacedBay> best = current;
+    double best_q = current_q;
+
+    double T0 = max(20.0, t0_frac * current_q);  // ignored when use_sa=false
+
+    OperatorSelector sel(build_active_ops(axis_aligned));
+
+    int iter = 0;
+    while (Clock::now() < deadline && iter < ITERATIONS) {
+        // Hill: mutate from best. SA: mutate from current chain.
+        vector<PlacedBay> candidate = use_sa ? current : best;
+
+        int op = sel.pick(iter);
+        stats.tried[op]++;
+
+        OPERATORS[op].fn(candidate, ctx);
+
+        double q = quality(candidate, wh_area);
+
+        bool accept;
+        if (!use_sa) {
+            accept = (q < best_q);
+        } else if (q < current_q) {
+            accept = true;
+        } else {
+            // Metropolis criterion (only in SA mode; preserves exact RNG call from hill_sa).
+            double elapsed = chrono::duration<double>(Clock::now() - sa_start).count();
+            double progress = min(1.0, elapsed / total_seconds);
+            double T = max(1e-6, T0 * (1.0 - progress));
+            double dQ = q - current_q;
+            double prob = exp(-dQ / T);
+            double u = uniform_real_distribution<double>(0.0, 1.0)(rng);
+            accept = (u < prob);
+        }
+
+        bool improved_best = false;
+        if (accept) {
+            current   = candidate;
+            current_q = q;
+            if (q < best_q) {
+                best      = candidate;
+                best_q    = q;
+                improved_best = true;
+            }
+        } else if (!use_sa) {
+            // Hill mode: current always tracks best (no SA chain).
+            current   = best;
+            current_q = best_q;
+        }
+
+        if (improved_best || (!use_sa && accept)) {
+            stats.improved[op]++;
+        }
+        sel.record(op, improved_best || (!use_sa && accept));
+
+        iter++;
+        sel.maybe_decay(iter);
+    }
+
+    return best;
+}
+
+// Thin wrappers preserve the original call-site signatures.
 vector<PlacedBay> hill(
     vector<PlacedBay> sol,
     const vector<BayType>& types,
@@ -2078,128 +2239,10 @@ vector<PlacedBay> hill(
     bool axis_aligned,
     Clock::time_point deadline
 ) {
-    vector<PlacedBay> best = sol;
-    double best_q = quality(best, wh_area);
-
-    const vector<int> active_ops = build_active_ops(axis_aligned);
-
-    // Build the unique-ops set + the static-distribution prior weight per op
-    // (so the warmup and prior reflect the hand-tuned mix from build_active_ops).
-    vector<int> unique_ops;
-    int prior_count[NUM_OPERATORS] = {};
-    for (int o : active_ops) {
-        prior_count[o]++;
-        if (find(unique_ops.begin(), unique_ops.end(), o) == unique_ops.end()) {
-            unique_ops.push_back(o);
-        }
-    }
-
-    // Rolling per-operator counters used by the adaptive sampler.
-    // Decayed periodically so dead operators get demoted over time.
-    long long roll_tried[NUM_OPERATORS] = {};
-    long long roll_improved[NUM_OPERATORS] = {};
-
-    const int WARMUP_ITERS = 150;
-    const int DECAY_PERIOD = 300;
-    int iter = 0;
-
-    while (Clock::now() < deadline && iter < ITERATIONS) {
-
-        vector<PlacedBay> candidate = best;
-
-        int op;
-        if (iter < WARMUP_ITERS) {
-            // Warmup: use the original static distribution so every op has a
-            // chance to gather statistics before adaptive sampling kicks in.
-            op = active_ops[rng() % active_ops.size()];
-        } else {
-            // Adaptive sampling. Weight = prior * (improved + 1) / (tried + 4).
-            // Multiplying by the prior preserves the hand-tuned axis-aligned
-            // gating (op 6/7 weights, etc.) as a soft preference.
-            double total = 0.0;
-            double w[NUM_OPERATORS] = {};
-            for (int o : unique_ops) {
-                double r = (double)(roll_improved[o] + 1) / (double)(roll_tried[o] + 4);
-                w[o] = (double)prior_count[o] * r;
-                total += w[o];
-            }
-
-            double pick = uniform_real_distribution<double>(0.0, total)(rng);
-            double acc = 0.0;
-            op = unique_ops.back();
-            for (int o : unique_ops) {
-                acc += w[o];
-                if (pick <= acc) { op = o; break; }
-            }
-        }
-
-        stats.tried[op]++;
-        roll_tried[op]++;
-
-        if (op == 0) {
-            add_bay(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
-        }
-        else if (op == 1) {
-            replace_bay(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
-        }
-        else if (op == 2) {
-            fill_aggressive(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
-        }
-        else if (op == 3) {
-            remove_k_and_refill(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
-        }
-        else if (op == 4) {
-            shared_gap_refill(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
-        }
-        else if (op == 5) {
-            upgrade_bay(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
-        }
-        else if (op == 6) {
-            rotate_compact_and_add(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
-        }
-        else if (op == 7) {
-            add_45_degree_bay(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
-        }
-        else if (op == 8) {
-            position_perturb_and_add(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
-        }
-        else {
-            split_bay(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
-        }
-
-        double q = quality(candidate, wh_area);
-
-        if (q < best_q) {
-            best = candidate;
-            best_q = q;
-            stats.improved[op]++;
-            roll_improved[op]++;
-        }
-
-        iter++;
-        if (iter % DECAY_PERIOD == 0) {
-            // Halve rolling counters so the window favours recent behaviour.
-            for (int o : unique_ops) {
-                roll_tried[o] /= 2;
-                roll_improved[o] /= 2;
-            }
-        }
-    }
-
-    return best;
+    OperatorContext ctx{types, warehouse, obstacles, ceiling, wh_area, mode};
+    return run_search(sol, ctx, stats, axis_aligned, deadline, /*use_sa=*/false);
 }
 
-// hill_sa — simulated-annealing variant of hill().
-//
-// Differences from hill():
-//  * Mutations are applied to a "current" state, not always to the best.
-//  * Worsening moves accepted with probability exp(-dQ / T).
-//  * T cools linearly from T0 (≈5% of starting Q) toward ~0 over the deadline.
-//  * `best` is tracked separately and returned, so SA never loses a good state.
-//
-// Per-op adaptive weights are reused as-is (driven off the same rolling
-// counters as hill()), because operator effectiveness should be similar; the
-// difference is only the acceptance rule.
 vector<PlacedBay> hill_sa(
     vector<PlacedBay> sol,
     const vector<BayType>& types,
@@ -2213,126 +2256,8 @@ vector<PlacedBay> hill_sa(
     Clock::time_point deadline,
     double t0_frac = 0.05
 ) {
-    auto sa_start = Clock::now();
-    double total_seconds = chrono::duration<double>(deadline - sa_start).count();
-    if (total_seconds <= 0.0) total_seconds = 1.0;
-
-    vector<PlacedBay> current = sol;
-    double current_q = quality(current, wh_area);
-
-    vector<PlacedBay> best = current;
-    double best_q = current_q;
-
-    // T0 controlled by caller (default 5%). Per-case optimal T0 differs:
-    // axis-aligned cases prefer ~3%, angled/forced-angle cases benefit from
-    // ~8%. Spreading across restarts hedges this — best-of-restart wins.
-    double T0 = max(20.0, t0_frac * current_q);
-
-    const vector<int> active_ops = build_active_ops(axis_aligned);
-
-    vector<int> unique_ops;
-    int prior_count[NUM_OPERATORS] = {};
-    for (int o : active_ops) {
-        prior_count[o]++;
-        if (find(unique_ops.begin(), unique_ops.end(), o) == unique_ops.end()) {
-            unique_ops.push_back(o);
-        }
-    }
-
-    long long roll_tried[NUM_OPERATORS] = {};
-    long long roll_improved[NUM_OPERATORS] = {};
-
-    const int WARMUP_ITERS = 150;
-    const int DECAY_PERIOD = 300;
-    int iter = 0;
-
-    while (Clock::now() < deadline && iter < ITERATIONS) {
-        // Mutations are applied to current (SA chain), not to best.
-        vector<PlacedBay> candidate = current;
-
-        int op;
-        if (iter < WARMUP_ITERS) {
-            op = active_ops[rng() % active_ops.size()];
-        } else {
-            double total = 0.0;
-            double w[NUM_OPERATORS] = {};
-            for (int o : unique_ops) {
-                double r = (double)(roll_improved[o] + 1) / (double)(roll_tried[o] + 4);
-                w[o] = (double)prior_count[o] * r;
-                total += w[o];
-            }
-            double pick = uniform_real_distribution<double>(0.0, total)(rng);
-            double acc = 0.0;
-            op = unique_ops.back();
-            for (int o : unique_ops) {
-                acc += w[o];
-                if (pick <= acc) { op = o; break; }
-            }
-        }
-
-        stats.tried[op]++;
-        roll_tried[op]++;
-
-        if (op == 0) {
-            add_bay(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
-        } else if (op == 1) {
-            replace_bay(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
-        } else if (op == 2) {
-            fill_aggressive(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
-        } else if (op == 3) {
-            remove_k_and_refill(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
-        } else if (op == 4) {
-            shared_gap_refill(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
-        } else if (op == 5) {
-            upgrade_bay(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
-        } else if (op == 6) {
-            rotate_compact_and_add(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
-        } else if (op == 7) {
-            add_45_degree_bay(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
-        } else if (op == 8) {
-            position_perturb_and_add(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
-        } else {
-            split_bay(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
-        }
-
-        double q = quality(candidate, wh_area);
-
-        // Linear cooling: progress = elapsed / total, T = T0 * (1 - progress).
-        double elapsed = chrono::duration<double>(Clock::now() - sa_start).count();
-        double progress = min(1.0, elapsed / total_seconds);
-        double T = max(1e-6, T0 * (1.0 - progress));
-
-        bool accept;
-        if (q < current_q) {
-            accept = true;
-        } else {
-            double dQ = q - current_q;
-            double prob = exp(-dQ / T);
-            double u = uniform_real_distribution<double>(0.0, 1.0)(rng);
-            accept = (u < prob);
-        }
-
-        if (accept) {
-            current = candidate;
-            current_q = q;
-            if (q < best_q) {
-                best = candidate;
-                best_q = q;
-                stats.improved[op]++;
-                roll_improved[op]++;
-            }
-        }
-
-        iter++;
-        if (iter % DECAY_PERIOD == 0) {
-            for (int o : unique_ops) {
-                roll_tried[o] /= 2;
-                roll_improved[o] /= 2;
-            }
-        }
-    }
-
-    return best;
+    OperatorContext ctx{types, warehouse, obstacles, ceiling, wh_area, mode};
+    return run_search(sol, ctx, stats, axis_aligned, deadline, /*use_sa=*/true, t0_frac);
 }
 
 void print_operator_stats(const string& case_dir, const OperatorStats& stats) {
@@ -2345,7 +2270,7 @@ void print_operator_stats(const string& case_dir, const OperatorStats& stats) {
             rate = 100.0 * stats.improved[i] / stats.tried[i];
         }
 
-        cout << OP_NAMES[i]
+        cout << OPERATORS[i].name
              << " | tried=" << stats.tried[i]
              << " | improved=" << stats.improved[i]
              << " | rate=" << rate << "%\n";
@@ -2367,6 +2292,17 @@ void solve_case(const string& case_dir) {
 
     auto deadline = Clock::now() + chrono::milliseconds((long long)(CASE_BUDGET_SECONDS * 1000.0));
 
+    // Restart tier table: maps restart index → (SA?, t0_frac).
+    // r∈[0..1]: strict-improvement hill; r∈[2..3]: SA cold (3%);
+    // r∈[4..7]: SA medium (5%); r∈[8..9]: SA hot (8%).
+    struct RestartConfig { bool use_sa; double t0_frac; };
+    static const array<RestartConfig, 10> RESTART_TIERS = {{
+        {false, 0.00}, {false, 0.00},
+        {true,  0.03}, {true,  0.03},
+        {true,  0.05}, {true,  0.05}, {true, 0.05}, {true, 0.05},
+        {true,  0.08}, {true,  0.08},
+    }};
+
     auto worker = [&](int r) {
         int mode = r % 4;
 
@@ -2377,19 +2313,11 @@ void solve_case(const string& case_dir) {
 
         OperatorStats stats;
 
-        // Mostly SA, with two strict-improvement hill restarts as a safety
-        // net. The 8 SA restarts are split across three T0 fractions to hedge
-        // per-case sensitivity: 3% (cold) is best on tight axis-aligned cases,
-        // 8% (hot) helps angled/forced-angle cases escape larger local minima.
-        if (r < 2) {
+        const auto& rc = RESTART_TIERS[r];
+        if (!rc.use_sa) {
             sol = hill(sol, types, warehouse, obstacles, ceiling, wh_area, mode, stats, axis_aligned, deadline);
         } else {
-            // r in [2..9]: distribute 2x cold (3%), 4x medium (5%), 2x hot (8%).
-            double t0_frac;
-            if (r <= 3) t0_frac = 0.03;
-            else if (r <= 7) t0_frac = 0.05;
-            else t0_frac = 0.08;
-            sol = hill_sa(sol, types, warehouse, obstacles, ceiling, wh_area, mode, stats, axis_aligned, deadline, t0_frac);
+            sol = hill_sa(sol, types, warehouse, obstacles, ceiling, wh_area, mode, stats, axis_aligned, deadline, rc.t0_frac);
         }
 
         return make_pair(sol, stats);
@@ -2449,6 +2377,31 @@ void solve_case(const string& case_dir) {
 
 int main(int argc, char* argv[]) {
     auto total_start = Clock::now();
+
+    // --parity mode: RESTARTS=1, single-threaded, seed 42. Used for regression
+    // testing. Prints "<case>\t<Q>\t<bays>" per case then exits.
+    bool parity_mode = (argc >= 2 && string(argv[1]) == "--parity");
+
+    if (parity_mode) {
+        vector<string> cases_to_run = discover_test_cases();
+        for (auto& c : cases_to_run) {
+            auto warehouse = read_warehouse(c + "/warehouse.csv");
+            auto obstacles = read_obstacles(c + "/obstacles.csv");
+            auto ceiling   = read_ceiling(c + "/ceiling.csv");
+            auto types     = read_bays(c + "/types_of_bays.csv");
+            double wh_area = available_warehouse_area(warehouse, obstacles);
+            bool axis_aligned = warehouse_is_axis_aligned(warehouse);
+            auto deadline = Clock::now() + chrono::milliseconds((long long)(CASE_BUDGET_SECONDS * 1000.0));
+            rng.seed(42);
+            int mode = 0;
+            OperatorStats stats;
+            auto sol = build_initial(types, warehouse, obstacles, ceiling, wh_area, mode, axis_aligned, 0);
+            sol = hill(sol, types, warehouse, obstacles, ceiling, wh_area, mode, stats, axis_aligned, deadline);
+            double q = quality(sol, wh_area);
+            cout << c << "\t" << fixed << setprecision(6) << q << "\t" << sol.size() << "\n";
+        }
+        return 0;
+    }
 
     if (argc >= 2) {
         // CLI mode: solve a single case directory passed as argv[1].

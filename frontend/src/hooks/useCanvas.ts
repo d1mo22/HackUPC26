@@ -17,10 +17,17 @@ export function useCanvas() {
   const onWheel = useCallback((e: React.WheelEvent<HTMLCanvasElement>) => {
     e.preventDefault()
     const factor = e.deltaY < 0 ? 1.1 : 0.9
-    setTransform((t) => ({
-      ...t,
-      scale: Math.min(MAX_SCALE, Math.max(MIN_SCALE, t.scale * factor)),
-    }))
+    const rect = e.currentTarget.getBoundingClientRect()
+    const mx = e.clientX - rect.left
+    const my = e.clientY - rect.top
+    setTransform((t) => {
+      const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, t.scale * factor))
+      return {
+        scale: newScale,
+        offsetX: mx - (mx - t.offsetX) * (newScale / t.scale),
+        offsetY: my - (my - t.offsetY) * (newScale / t.scale),
+      }
+    })
   }, [])
 
   const onMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {

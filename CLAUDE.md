@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-HackUPC 2026 — Mecalux Warehouse Optimizer. Given a warehouse polygon, obstacles, a stepped ceiling, and bay type catalog, produce a 2D bay placement that maximises the metric:
+HackUPC 2026 — Mecalux Warehouse Optimizer. Given a warehouse polygon, obstacles, a stepped ceiling, and bay type catalog, produce a 2D bay placement that minimises the metric:
 
 ```
 Q = (Σ price/loads)^(2 - area_bays/area_warehouse)
@@ -69,7 +69,48 @@ All coordinates are in **millimetres**, origin bottom-left.
 
 React + TypeScript + Vite + Tailwind CSS + Canvas 2D API (native). PapaParse for CSV parsing. Small Node/Express bridge to spawn `solver.py` and return `solution.csv`.
 
-See `plan.md` §6 for the full component breakdown and integration approach.
+**Important:** Tailwind utility classes for layout/spacing/color are unreliable in this setup — use inline `style={{}}` props for everything. Tailwind structural classes (`flex`, `flex-1`, `overflow-hidden`) still work.
+
+### To start the app
+
+```bash
+# Terminal 1 — frontend dev server
+cd frontend && npm run dev
+
+# Terminal 2 — solver bridge (needed for Run Solver button)
+cd frontend && npm run dev:server
+```
+
+## Frontend status — all tasks complete ✅
+
+| Component/File | What it does |
+|----------------|-------------|
+| `src/App.tsx` | Root: 3-column layout, StatusBadge, solver fetch, run history, bay-type filter state (`selectedTypeIds`) |
+| `src/components/FileLoader.tsx` | 2×2 CSV drop zone + solution slot; validates required columns |
+| `src/components/Controls.tsx` | Ceiling / Labels / Gap-zones toggles; Run Solver + Export CSV buttons |
+| `src/components/Canvas.tsx` | **2D/3D canvas.** 2D: zoom-to-cursor pan, warehouse polygon, obstacles, bay fills + gap zones + labels, ceiling tint+step-line overlay, hover tooltip with Q-ratio badge, two-pass hover highlight (so neighbours can't cover it). 3D: rotatable orthographic projection (left-drag=orbit, right-drag=pan, scroll=zoom), parameterised azimuth+elevation, correct painter's-algorithm face order, ceiling planes. Bay-type filter applied before rendering. |
+| `src/components/BayLegend.tsx` | Clickable per-type rows — click to filter canvas to that type, multi-select supported, "Clear filter" button when active |
+| `src/components/MetricsPanel.tsx` | Q score, coverage %, bay count, total price/loads — animated on update |
+| `src/components/RightPanel.tsx` | 3-tab panel: Metrics+Legend · Breakdown · History; threads filter props to BayLegend |
+| `src/components/BreakdownTab.tsx` | price/loads bar chart per type, best/worst Q-ratio tip card |
+| `src/components/HistoryTab.tsx` | Past solver runs list; clicking a run restores it on the canvas |
+| `src/hooks/useCanvas.ts` | Zoom-toward-cursor + pan transform state for the 2D canvas |
+| `src/lib/geometry.ts` | `bayDimensions`, `polygonBounds` |
+| `src/lib/csvParser.ts` | CSV parsing with header validation and column-name errors |
+| `src/lib/scoring.ts` | `computeMetrics` — Q score, coverage %, bay count |
+| `src/types.ts` | `Point`, `Obstacle`, `CeilingSegment`, `BayType`, `PlacedBay`, `WarehouseCase`, `Solution`, `RunRecord` |
+| `server/index.ts` | Express POST `/solve` — pipes CSV files to `run_single.py`, streams back `solution.csv` |
+
+### Key Canvas implementation notes
+
+- **HiDPI**: `canvas.width = rect.width * dpr`, then `ctx.setTransform(dpr,0,0,dpr,0,0)` — all draw coords stay in logical pixels.
+- **2D transform convention**: `screen_x = offsetX + wx * scale`, `screen_y = offsetY - wy * scale` (Y flipped).
+- **Native wheel listener** with `{ passive: false }` — React's `onWheel` is passive and `e.preventDefault()` silently fails, so a `useEffect`-registered listener is used instead.
+- **Hover highlight**: drawn in a second loop pass after all bay fills so adjacent bays can't paint over it.
+- **3D projection**: `screenX = ox + (wx·cosAz − wy·sinAz)·s`, `screenY = oy − (ry·sinEl + wz·cosEl)·s`. Painter sort is **descending** by depth (larger depth = farther from viewer = drawn first).
+- **3D face visibility**: `-X face` visible when `sinAz > 0`; `-Y face` visible when `cosAz > 0`; top always visible. The deeper side face is drawn before the shallower one within each bay.
+- **Bay-type filter**: `visiblePlacements = selectedTypeIds.size > 0 ? placements.filter(...) : placements` — applied to both render passes and hit-testing.
+- **`Canvas3D.tsx`** exists in the components folder but is unused — kept as reference for a potential react-three-fiber upgrade.
 
 ## Key geometry invariants
 

@@ -11,9 +11,12 @@
 #include <array>
 #include <chrono>
 #include <climits>
+#include <filesystem>
+#include <functional>
 
 using namespace std;
 using Clock = chrono::steady_clock;
+namespace fs = std::filesystem;
 
 //const vector<string> CASES = {"Case0", "Case1", "Case2", "Case3","CaseWeird","Case40"};
 //const vector<string> CASES = {"CaseAngledA", "CaseAngledB", "CaseAngledC", "CaseAngledD"};
@@ -23,7 +26,7 @@ using Clock = chrono::steady_clock;
 // and the forced-angle outlier — covers the dimensions where regressions
 // have historically shown up. Use the full 15-case list for final eval.
 //const vector<string> CASES = {"Case0", "CaseWeird", "CaseAngledD", "CaseDiagArmD", "CaseForcedAngle"};
-const vector<string> CASES = {"CaseWeird", "Case1", "Case2", "Case3", "Case0", "Case40", "CaseAngledA", "CaseAngledB", "CaseAngledC", "CaseAngledD", "CaseDiagArmA", "CaseDiagArmB", "CaseDiagArmC", "CaseDiagArmD","CaseForcedAngle"};
+const vector<string> PREFERRED_CASE_ORDER = {"CaseWeird", "Case1", "Case2", "Case3", "Case0", "Case40", "CaseAngledA", "CaseAngledB", "CaseAngledC", "CaseAngledD", "CaseDiagArmA", "CaseDiagArmB", "CaseDiagArmC", "CaseDiagArmD","CaseForcedAngle"};
 
 const int ITERATIONS = 450;          // legacy ceiling — actual stop is the deadline
 const double CASE_BUDGET_SECONDS = 25.0;  // wall budget per restart; restarts run in parallel
@@ -42,6 +45,53 @@ const double EPS = 1e-7;
 const double PI = acos(-1.0);
 
 thread_local mt19937 rng(42);
+
+bool is_test_case_dir(const fs::path& dir) {
+    if (!fs::is_directory(dir)) {
+        return false;
+    }
+
+    static const vector<string> required_files = {
+        "warehouse.csv",
+        "obstacles.csv",
+        "ceiling.csv",
+        "types_of_bays.csv"
+    };
+
+    for (const string& file : required_files) {
+        if (!fs::is_regular_file(dir / file)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+vector<string> discover_test_cases() {
+    vector<string> found;
+
+    for (const auto& entry : fs::directory_iterator(fs::current_path())) {
+        if (is_test_case_dir(entry.path())) {
+            found.push_back(entry.path().filename().string());
+        }
+    }
+
+    sort(found.begin(), found.end());
+
+    vector<string> ordered;
+
+    for (const string& preferred : PREFERRED_CASE_ORDER) {
+        auto it = find(found.begin(), found.end(), preferred);
+
+        if (it != found.end()) {
+            ordered.push_back(preferred);
+            found.erase(it);
+        }
+    }
+
+    ordered.insert(ordered.end(), found.begin(), found.end());
+    return ordered;
+}
 
 double seconds_since(Clock::time_point start) {
     return chrono::duration<double>(Clock::now() - start).count();
@@ -2304,6 +2354,8 @@ void print_operator_stats(const string& case_dir, const OperatorStats& stats) {
 
 void solve_case(const string& case_dir) {
     auto case_start = Clock::now();
+    auto deadline = case_start + chrono::duration_cast<chrono::steady_clock::duration>(
+        chrono::duration<double>(WALL_BUDGET));
 
     cout << "\n=== Solving " << case_dir << " ===\n";
 
@@ -2329,7 +2381,7 @@ void solve_case(const string& case_dir) {
     auto worker = [&](int r) {
         int mode = r % 4;
 
-        rng.seed(42 + r * 1000 + (int)case_dir[4]);
+        rng.seed(42 + r * 1000 + (int)(hash<string>{}(case_dir) % 100000));
 
         cout << "Restart " << r + 1 << "/" << RESTARTS
              << " started | mode=" << mode << "\n";
@@ -2433,17 +2485,14 @@ void solve_case(const string& case_dir) {
     cout << "[time] " << case_dir << " elapsed=" << seconds_since(case_start) << "s\n";
 }
 
-int main() {
+int main(int argc, char* argv[]) {
     auto total_start = Clock::now();
+    vector<string> cases_to_run = discover_test_cases();
 
-    for (auto& c : CASES) {
-        ifstream f(c + "/warehouse.csv");
+    cout << "test_cases_found=" << cases_to_run.size() << "\n";
 
-        if (f.good()) {
-            solve_case(c);
-        } else {
-            cout << "Skipping " << c << "\n";
-        }
+    for (auto& c : cases_to_run) {
+        solve_case(c);
     }
 
     cout << "\n[time] total elapsed=" << seconds_since(total_start) << "s\n";

@@ -7,7 +7,32 @@ from matplotlib.patches import Polygon as MplPolygon, Patch
 CASES = ["CaseWeird", "Case1", "Case2", "Case3", "Case0", "Case40", "CaseAngledA", "CaseAngledB", "CaseAngledC", "CaseAngledD",
          # Ordenados por calidad visual (según mi criterio)
          "CaseDiagArmA", "CaseDiagArmB", "CaseDiagArmC", "CaseDiagArmD", "CaseForcedAngle", "Archivo"]
-CASES_PER_FIGURE = 4
+CASES_PER_FIGURE = 2
+
+
+def is_test_case_dir(path):
+    required_files = [
+        "warehouse.csv",
+        "obstacles.csv",
+        "ceiling.csv",
+        "types_of_bays.csv",
+        "solution.csv",
+    ]
+
+    return os.path.isdir(path) and all(
+        os.path.isfile(os.path.join(path, file)) for file in required_files
+    )
+
+
+def discover_cases():
+    found = sorted(
+        entry for entry in os.listdir(".")
+        if is_test_case_dir(entry)
+    )
+
+    ordered = [case for case in CASES if case in found]
+    ordered.extend(case for case in found if case not in ordered)
+    return ordered
 
 
 def safe_read(path, columns):
@@ -233,7 +258,7 @@ def draw_case(case, ax):
 
 
 def main():
-    existing = [c for c in CASES if os.path.exists(f"{c}/solution.csv")]
+    existing = discover_cases()
 
     legend_items = [
         Patch(facecolor="red", edgecolor="darkred",
@@ -250,7 +275,7 @@ def main():
     for page, start in enumerate(range(0, len(existing), CASES_PER_FIGURE), start=1):
         cases = existing[start:start + CASES_PER_FIGURE]
 
-        fig, axes = plt.subplots(2, 2, figsize=(16, 16))
+        fig, axes = plt.subplots(1, 2, figsize=(18, 9))
         axes = axes.flatten()
 
         for ax in axes:

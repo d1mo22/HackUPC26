@@ -30,9 +30,9 @@ export interface BayType {
 /** One row from solution.csv */
 export interface PlacedBay {
   id: number       // references BayType.id
-  x: number
-  y: number
-  rotation: number // 0 or 1 (1 = w/d swapped)
+  x: number        // AABB bottom-left x (mm)
+  y: number        // AABB bottom-left y (mm)
+  rotation: 0 | 90 | 180 | 270  // normalised angle; 90/270 swap w↔d; gap direction follows angle
 }
 
 /** All data needed to render a case */
@@ -45,4 +45,16 @@ export interface WarehouseCase {
 
 export interface Solution {
   placements: PlacedBay[]
+}
+
+export interface RunRecord {
+  id: number
+  solution: Solution
+  metrics: {
+    q: number
+    coveragePct: number
+    bayCount: number
+  }
+  elapsedMs: number
+  timestamp: Date
 }

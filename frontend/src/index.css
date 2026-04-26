@@ -8,11 +8,27 @@
   --color-muted:       #94A3B8;
   --color-accent:      #22C55E;
   --color-destructive: #EF4444;
+  --color-canvas-bg:   #020617;
+  --color-canvas-floor:#08111f;
+  --color-canvas-grid: #0d1a2e;
 
   --font-ui:   'Inter', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
 
   --bay-colors: #3B82F6, #F59E0B, #EC4899, #8B5CF6, #06B6D4, #F97316, #84CC16, #14B8A6;
+}
+
+[data-theme="light"] {
+  --color-bg:          #F1F5F9;
+  --color-card:        #FFFFFF;
+  --color-border:      #CBD5E1;
+  --color-fg:          #0F172A;
+  --color-muted:       #64748B;
+  --color-accent:      #16A34A;
+  --color-destructive: #DC2626;
+  --color-canvas-bg:   #E2E8F0;
+  --color-canvas-floor:#CBD5E1;
+  --color-canvas-grid: #94A3B8;
 }
 
 * {

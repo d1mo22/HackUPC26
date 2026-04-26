@@ -1513,6 +1513,11 @@ bool remove_k_refill(
     if ((int)sol.size() < k) return false;
     bool improved = false;
 
+    // Compute local-fill radius: LOCAL_FILL_RADIUS × max bay dimension.
+    int max_bay_dim = 1;
+    for (auto& t : types) max_bay_dim = max(max_bay_dim, max(t.w + t.gap, t.d + t.gap));
+    double local_radius = LOCAL_FILL_RADIUS * max_bay_dim;
+
     QSums full_sums = compute_sums(sol);
     double Q_full = quality_from_sums(full_sums, wh_area, false);
 
@@ -1525,6 +1530,7 @@ bool remove_k_refill(
         return quality_from_sums(s, wh_area, s.price <= 0);
     };
 
+    // Sort by removal-ΔQ ascending (removing these bays hurts Q least).
     vector<int> order(sol.size());
     iota(order.begin(), order.end(), 0);
     sort(order.begin(), order.end(), [&](int a, int b){
@@ -1532,24 +1538,32 @@ bool remove_k_refill(
     });
 
     if (k == 1) {
-        for (int idx : order) {
+        // Only try top 1/REMOVE_TOP_K_FRAC of bays.
+        int n_try = max(1, (int)order.size() / REMOVE_TOP_K_FRAC);
+        for (int ii = 0; ii < n_try; ii++) {
+            int idx = order[ii];
+            vector<PlacedBay> removed = {sol[idx]};
             vector<PlacedBay> trial = sol;
             trial.erase(trial.begin() + idx);
-            fill_pass(trial, types, warehouse, obstacles, ceiling, wh_area);
+            local_fill_pass(trial, removed, local_radius, types, warehouse, obstacles, ceiling, wh_area);
             double Q_trial = quality(trial, wh_area);
             if (Q_trial < Q_full - EPS) {
                 sol = trial;
                 full_sums = compute_sums(sol);
                 Q_full = Q_trial;
                 improved = true;
+                // Recompute order after change.
                 order.resize(sol.size());
                 iota(order.begin(), order.end(), 0);
                 sort(order.begin(), order.end(), [&](int a, int b){
                     return q_without(a) < q_without(b);
                 });
+                n_try = max(1, (int)order.size() / REMOVE_TOP_K_FRAC);
+                ii = -1; // restart loop
             }
         }
     } else if (k == 2) {
+        // Spatially adjacent pairs (cap 30 pairs), use local fill.
         vector<pair<int,int>> pairs;
         for (int i = 0; i < (int)sol.size() && (int)pairs.size() < 30; i++) {
             double cx_i = (sol[i].bay_min_x + sol[i].bay_max_x) / 2.0;
@@ -1566,11 +1580,12 @@ bool remove_k_refill(
         }
         for (auto [i, j] : pairs) {
             if (i >= (int)sol.size() || j >= (int)sol.size()) continue;
-            vector<PlacedBay> trial = sol;
             int hi = max(i,j), lo = min(i,j);
+            vector<PlacedBay> removed = {sol[hi], sol[lo]};
+            vector<PlacedBay> trial = sol;
             trial.erase(trial.begin() + hi);
             trial.erase(trial.begin() + lo);
-            fill_pass(trial, types, warehouse, obstacles, ceiling, wh_area);
+            local_fill_pass(trial, removed, local_radius, types, warehouse, obstacles, ceiling, wh_area);
             double Q_trial = quality(trial, wh_area);
             if (Q_trial < Q_full - EPS) {
                 sol = trial;
@@ -1583,9 +1598,11 @@ bool remove_k_refill(
         if ((int)order.size() < 3) return false;
         vector<int> to_remove = {order[0], order[1], order[2]};
         sort(to_remove.rbegin(), to_remove.rend());
+        vector<PlacedBay> removed;
+        for (int idx : to_remove) removed.push_back(sol[idx]);
         vector<PlacedBay> trial = sol;
         for (int idx : to_remove) trial.erase(trial.begin() + idx);
-        fill_pass(trial, types, warehouse, obstacles, ceiling, wh_area);
+        local_fill_pass(trial, removed, local_radius, types, warehouse, obstacles, ceiling, wh_area);
         double Q_trial = quality(trial, wh_area);
         if (Q_trial < Q_full - EPS) {
             sol = trial;

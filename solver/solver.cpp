@@ -40,6 +40,7 @@ const double DIAGONAL_COMPACT_MIN_SHIFT = 25.0;
 const int DIAGONAL_COMPACT_MAX_BAYS = 12;
 const int DIAGONAL_COMPACT_BINARY_ITERS = 18;
 const int SHARED_GAP_MAX_ANCHORS = 24;
+const int WALL_BUDGET = 25;
 
 const double EPS = 1e-7;
 const double PI = acos(-1.0);
@@ -2354,8 +2355,6 @@ void print_operator_stats(const string& case_dir, const OperatorStats& stats) {
 
 void solve_case(const string& case_dir) {
     auto case_start = Clock::now();
-    auto deadline = case_start + chrono::duration_cast<chrono::steady_clock::duration>(
-        chrono::duration<double>(WALL_BUDGET));
 
     cout << "\n=== Solving " << case_dir << " ===\n";
 

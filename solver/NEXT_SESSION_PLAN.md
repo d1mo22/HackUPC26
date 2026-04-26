@@ -145,9 +145,35 @@ Results were noise-level: trades CaseAngledD (−56) for CaseDiagArmD (+52), or 
 Production:
 - `CASE_BUDGET_SECONDS = 25.0` (was 22)
 - `shared_gap_refill` has 25% cluster-mode branch
+- `split_bay` operator (op 9) added — gated to rotated victims only
 - All other operators unchanged from previous session
 
-Full 15-case Q ≈ 30683–30816 (3-run band, mean ~30740). Per-case wall ≈ 25s, total ~375s.
+Full 15-case Q ≈ 30426–30428 (3-run band, mean ~30427). Per-case wall ≈ 25s, total ~375s.
+
+## Session N+2 — split_bay operator
+
+### Step Split — KEPT
+
+New operator (op 9): pick a victim bay, remove it, attempt 12 random placements of smaller-area types within the victim's bbox at angles {0,90,180,270}. Accept only if ≥2 placed AND `quality(sol) < backup_q` (the ≥2 gate prevents degeneration into `replace_bay`; the Q gate handles all economics).
+
+**v1** (uniform random victim, smaller types ≤60% of victim area): subset +134 worse. 0/8000+ improvement rate per case. Diagnosis: for axis-aligned victims, bbox = bay footprint exactly, so placing smaller bays inside almost never increases total area; Q's area-exponent term penalizes the lost area more than the changed price/loads ratio gains.
+
+**v2** (gate to rotated victims with bbox/footprint ≥1.15, smaller types <victim area): rotated bays have axis-aligned bbox larger than their actual footprint (corner pockets), so smaller axis-aligned bays can fit inside without overlapping the victim's location. Removing the rotated victim opens those pockets.
+
+Results (3 deterministic full runs): **30427.50 / 30426.11 / 30426.11. Mean ~30427 (−313 vs ~30740 baseline).**
+
+Per-case wins concentrate where rotated bays exist:
+- CaseAngledB: 2111 → 2233? (Note: per-case Q changes don't all flow through split_bay improvements directly; SA chain accepts also benefit from operator's intermediate gains.)
+- CaseAngledD: 2684 → 2446 (−238)
+- CaseForcedAngle: 3072 → 3038 (−34)
+- Case0: 1093 → 1064 (−29)
+
+split_bay's own `improved[op]` (new global best counter) was non-zero on CaseAngledB (7) and CaseAngledD (4); other cases benefited via SA chain accepts where Q improved but not to new-best.
+
+**Lesson:** when designing geometric operators, check that the operator's mechanism actually creates new feasible space for the refill. Here, axis-aligned victims have no extra space inside the bbox; only rotated victims do. Targeting the geometric precondition (bbox/footprint ratio) makes the operator productive instead of dead.
+
+**Cumulative session improvement: 31843.27 → ~30427 (−1416, −4.4%).**
+**Cumulative since Step 10 baseline (32023.61): −1597 (−5.0%).**
 
 ## Hard cases worth deep dives
 

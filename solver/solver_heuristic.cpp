@@ -1628,7 +1628,15 @@ void improve(
         if (seconds_since(t_start) >= budget_seconds) break;
         any |= fill_pass(sol, types, warehouse, obstacles, ceiling, wh_area);
         if (seconds_since(t_start) >= budget_seconds) break;
-        // remove_k_refill disabled for now — too slow for typical case sizes
+        any |= remove_k_refill(sol, 1, types, warehouse, obstacles, ceiling, wh_area);
+        if (seconds_since(t_start) >= budget_seconds) break;
+        if (seconds_since(t_start) < budget_seconds * 0.9) {
+            any |= remove_k_refill(sol, 2, types, warehouse, obstacles, ceiling, wh_area);
+        }
+        if (seconds_since(t_start) >= budget_seconds) break;
+        if (seconds_since(t_start) < budget_seconds * 0.9) {
+            any |= remove_k_refill(sol, 3, types, warehouse, obstacles, ceiling, wh_area);
+        }
         if (!any) break;
     }
 }

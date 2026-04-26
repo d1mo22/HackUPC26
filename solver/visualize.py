@@ -4,12 +4,57 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon as MplPolygon, Patch
 
-CASES = ["Case0", "Case1", "Case2", "Case3"]
+CASES = ["CaseWeird", "Case1", "Case2", "Case3", "Case0", "Case40", "CaseAngledA", "CaseAngledB", "CaseAngledC", "CaseAngledD",
+         # Ordenados por calidad visual (según mi criterio)
+         "CaseDiagArmA", "CaseDiagArmB", "CaseDiagArmC", "CaseDiagArmD", "CaseForcedAngle", "Archivo"]
+CASES_PER_FIGURE = 2
+
+
+def is_test_case_dir(path):
+    required_files = [
+        "warehouse.csv",
+        "obstacles.csv",
+        "ceiling.csv",
+        "types_of_bays.csv",
+        "solution.csv",
+    ]
+
+    return os.path.isdir(path) and all(
+        os.path.isfile(os.path.join(path, file)) for file in required_files
+    )
+
+
+def discover_cases():
+    found = sorted(
+        entry for entry in os.listdir(".")
+        if is_test_case_dir(entry)
+    )
+
+    ordered = [case for case in CASES if case in found]
+    ordered.extend(case for case in found if case not in ordered)
+    return ordered
 
 
 def safe_read(path, columns):
     try:
         df = pd.read_csv(path, header=None, skipinitialspace=True)
+
+        if df.empty:
+            return pd.DataFrame(columns=columns)
+
+        # Some cases include a textual header row while others do not.
+        first_row_numeric = pd.to_numeric(df.iloc[0], errors="coerce")
+        if first_row_numeric.isna().any():
+            df = df.iloc[1:].reset_index(drop=True)
+
+        if df.empty:
+            return pd.DataFrame(columns=columns)
+
+        if df.shape[1] < len(columns):
+            raise ValueError(
+                f"{path}: expected at least {len(columns)} columns, got {df.shape[1]}")
+
+        df = df.iloc[:, : len(columns)]
         df.columns = columns
         return df
     except pd.errors.EmptyDataError:
@@ -19,7 +64,8 @@ def safe_read(path, columns):
 def read_case(case):
     wh = safe_read(f"{case}/warehouse.csv", ["x", "y"])
     obs = safe_read(f"{case}/obstacles.csv", ["x", "y", "w", "d"])
-    bays = safe_read(f"{case}/types_of_bays.csv", ["id", "w", "d", "h", "gap", "loads", "price"])
+    bays = safe_read(f"{case}/types_of_bays.csv",
+                     ["id", "w", "d", "h", "gap", "loads", "price"])
     sol = pd.read_csv(f"{case}/solution.csv")
 
     return wh.astype(int), obs.astype(int), bays.astype(int), sol.astype(int)
@@ -164,7 +210,8 @@ def draw_case(case, ax):
             va="center",
             fontsize=6,
             color="black",
-            bbox=dict(facecolor="white", alpha=0.70, edgecolor="none", pad=0.5),
+            bbox=dict(facecolor="white", alpha=0.70,
+                      edgecolor="none", pad=0.5),
             zorder=13
         )
 
@@ -211,33 +258,50 @@ def draw_case(case, ax):
 
 
 def main():
-    existing = [c for c in CASES if os.path.exists(f"{c}/solution.csv")]
-
-    fig, axes = plt.subplots(2, 2, figsize=(16, 16))
-    axes = axes.flatten()
-
-    for ax in axes:
-        ax.axis("off")
-
-    for ax, case in zip(axes, existing):
-        ax.axis("on")
-        draw_case(case, ax)
+    existing = discover_cases()
 
     legend_items = [
-        Patch(facecolor="red", edgecolor="darkred", alpha=0.45, label="Obstacle"),
-        Patch(facecolor="gray", edgecolor="black", alpha=0.58, label="Bay rotated footprint"),
-        Patch(facecolor="none", edgecolor="blue", linestyle="--", label="Gap / access rotated footprint"),
+        Patch(facecolor="red", edgecolor="darkred",
+              alpha=0.45, label="Obstacle"),
+        Patch(facecolor="gray", edgecolor="black",
+              alpha=0.58, label="Bay rotated footprint"),
+        Patch(facecolor="none", edgecolor="blue", linestyle="--",
+              label="Gap / access rotated footprint"),
         Patch(facecolor="none", edgecolor="black", label="Warehouse boundary"),
     ]
 
-    fig.legend(handles=legend_items, loc="upper center", ncol=4, fontsize=11)
-    fig.suptitle("Warehouse solutions - true rotated footprints", fontsize=18, fontweight="bold")
+    saved_files = []
 
-    plt.tight_layout(rect=[0, 0, 1, 0.96])
-    plt.savefig("all_solutions_angles.png", dpi=220)
+    for page, start in enumerate(range(0, len(existing), CASES_PER_FIGURE), start=1):
+        cases = existing[start:start + CASES_PER_FIGURE]
+
+        fig, axes = plt.subplots(1, 2, figsize=(18, 9))
+        axes = axes.flatten()
+
+        for ax in axes:
+            ax.axis("off")
+
+        for ax, case in zip(axes, cases):
+            ax.axis("on")
+            draw_case(case, ax)
+
+        fig.legend(handles=legend_items,
+                   loc="upper center", ncol=4, fontsize=11)
+        fig.suptitle(
+            f"Warehouse solutions - true rotated footprints (page {page})",
+            fontsize=18,
+            fontweight="bold"
+        )
+
+        plt.tight_layout(rect=[0, 0, 1, 0.96])
+
+        out_path = "all_solutions_angles.png" if page == 1 else f"all_solutions_angles_{page}.png"
+        plt.savefig(out_path, dpi=220)
+        saved_files.append(out_path)
+
     plt.show()
 
-    print("Guardado: all_solutions_angles.png")
+    print("Guardado:", ", ".join(saved_files))
 
 
 if __name__ == "__main__":

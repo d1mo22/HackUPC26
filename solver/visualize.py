@@ -4,13 +4,32 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon as MplPolygon, Patch
 
-CASES = ["CaseWeird", "Case1", "Case2", "Case3", "Case0", "Case40", "CaseAngledA", "CaseAngledB", "CaseAngledC", "CaseAngledD", "CaseDiagArmA", "CaseDiagArmB", "CaseDiagArmC", "CaseDiagArmD","CaseForcedAngle"]  # Ordenados por calidad visual (según mi criterio)
+CASES = ["CaseWeird", "Case1", "Case2", "Case3", "Case0", "Case40", "CaseAngledA", "CaseAngledB", "CaseAngledC", "CaseAngledD",
+         # Ordenados por calidad visual (según mi criterio)
+         "CaseDiagArmA", "CaseDiagArmB", "CaseDiagArmC", "CaseDiagArmD", "CaseForcedAngle", "Archivo"]
 CASES_PER_FIGURE = 4
 
 
 def safe_read(path, columns):
     try:
         df = pd.read_csv(path, header=None, skipinitialspace=True)
+
+        if df.empty:
+            return pd.DataFrame(columns=columns)
+
+        # Some cases include a textual header row while others do not.
+        first_row_numeric = pd.to_numeric(df.iloc[0], errors="coerce")
+        if first_row_numeric.isna().any():
+            df = df.iloc[1:].reset_index(drop=True)
+
+        if df.empty:
+            return pd.DataFrame(columns=columns)
+
+        if df.shape[1] < len(columns):
+            raise ValueError(
+                f"{path}: expected at least {len(columns)} columns, got {df.shape[1]}")
+
+        df = df.iloc[:, : len(columns)]
         df.columns = columns
         return df
     except pd.errors.EmptyDataError:
@@ -20,7 +39,8 @@ def safe_read(path, columns):
 def read_case(case):
     wh = safe_read(f"{case}/warehouse.csv", ["x", "y"])
     obs = safe_read(f"{case}/obstacles.csv", ["x", "y", "w", "d"])
-    bays = safe_read(f"{case}/types_of_bays.csv", ["id", "w", "d", "h", "gap", "loads", "price"])
+    bays = safe_read(f"{case}/types_of_bays.csv",
+                     ["id", "w", "d", "h", "gap", "loads", "price"])
     sol = pd.read_csv(f"{case}/solution.csv")
 
     return wh.astype(int), obs.astype(int), bays.astype(int), sol.astype(int)
@@ -165,7 +185,8 @@ def draw_case(case, ax):
             va="center",
             fontsize=6,
             color="black",
-            bbox=dict(facecolor="white", alpha=0.70, edgecolor="none", pad=0.5),
+            bbox=dict(facecolor="white", alpha=0.70,
+                      edgecolor="none", pad=0.5),
             zorder=13
         )
 
@@ -215,9 +236,12 @@ def main():
     existing = [c for c in CASES if os.path.exists(f"{c}/solution.csv")]
 
     legend_items = [
-        Patch(facecolor="red", edgecolor="darkred", alpha=0.45, label="Obstacle"),
-        Patch(facecolor="gray", edgecolor="black", alpha=0.58, label="Bay rotated footprint"),
-        Patch(facecolor="none", edgecolor="blue", linestyle="--", label="Gap / access rotated footprint"),
+        Patch(facecolor="red", edgecolor="darkred",
+              alpha=0.45, label="Obstacle"),
+        Patch(facecolor="gray", edgecolor="black",
+              alpha=0.58, label="Bay rotated footprint"),
+        Patch(facecolor="none", edgecolor="blue", linestyle="--",
+              label="Gap / access rotated footprint"),
         Patch(facecolor="none", edgecolor="black", label="Warehouse boundary"),
     ]
 
@@ -236,7 +260,8 @@ def main():
             ax.axis("on")
             draw_case(case, ax)
 
-        fig.legend(handles=legend_items, loc="upper center", ncol=4, fontsize=11)
+        fig.legend(handles=legend_items,
+                   loc="upper center", ncol=4, fontsize=11)
         fig.suptitle(
             f"Warehouse solutions - true rotated footprints (page {page})",
             fontsize=18,

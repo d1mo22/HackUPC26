@@ -1,13 +1,25 @@
 import express from 'express'
 import multer from 'multer'
 import cors from 'cors'
-import { execFile } from 'child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { execFile, execFileSync } from 'child_process'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
+const SOLVER_SRC = join(__dirname, '../../solver/solver.cpp')
+const SOLVER_BIN = join(tmpdir(), 'warehouse-solver')
+
+// Compile the C++ solver on startup
+try {
+  console.log('Compiling solver...')
+  execFileSync('g++', ['-O3', '-std=c++17', '-o', SOLVER_BIN, SOLVER_SRC])
+  console.log('Solver compiled:', SOLVER_BIN)
+} catch (e) {
+  console.error('Failed to compile solver:', e)
+  process.exit(1)
+}
 
 const app = express()
 const upload = multer({ storage: multer.memoryStorage() })
@@ -36,30 +48,29 @@ app.post(
     const tmpDir = mkdtempSync(join(tmpdir(), 'warehouse-'))
 
     try {
-      writeFileSync(join(tmpDir, 'warehouse.csv'),      files.warehouse[0].buffer)
-      writeFileSync(join(tmpDir, 'obstacles.csv'),      files.obstacles[0].buffer)
-      writeFileSync(join(tmpDir, 'ceiling.csv'),        files.ceiling[0].buffer)
-      writeFileSync(join(tmpDir, 'types_of_bays.csv'),  files.types[0].buffer)
+      writeFileSync(join(tmpDir, 'warehouse.csv'),     files.warehouse[0].buffer)
+      writeFileSync(join(tmpDir, 'obstacles.csv'),     files.obstacles[0].buffer)
+      writeFileSync(join(tmpDir, 'ceiling.csv'),       files.ceiling[0].buffer)
+      writeFileSync(join(tmpDir, 'types_of_bays.csv'), files.types[0].buffer)
 
-      const scriptPath = join(__dirname, 'run_single.py')
+      execFile(SOLVER_BIN, [tmpDir], { timeout: 120_000 }, (err, stdout, stderr) => {
+        console.log(stdout)
+        if (stderr) console.error(stderr)
 
-      execFile('python3', [scriptPath, tmpDir], { timeout: 35_000 }, (err, stdout, stderr) => {
-        if (err) {
-          console.error('Solver error:', stderr)
-          res.status(500).send(stderr || err.message)
-          rmSync(tmpDir, { recursive: true, force: true })
-          return
+        const solutionPath = join(tmpDir, 'solution.csv')
+        if (existsSync(solutionPath)) {
+          try {
+            const csv = readFileSync(solutionPath, 'utf-8')
+            res.setHeader('Content-Type', 'text/csv')
+            res.send(csv)
+          } catch (e) {
+            res.status(500).send('Failed to read solution.csv')
+          }
+        } else {
+          res.status(500).send(stderr || err?.message || 'Solver did not produce output')
         }
 
-        try {
-          const csv = readFileSync(join(tmpDir, 'solution.csv'), 'utf-8')
-          res.setHeader('Content-Type', 'text/csv')
-          res.send(csv)
-        } catch {
-          res.status(500).send('Solver did not produce output')
-        } finally {
-          rmSync(tmpDir, { recursive: true, force: true })
-        }
+        rmSync(tmpDir, { recursive: true, force: true })
       })
     } catch (e) {
       rmSync(tmpDir, { recursive: true, force: true })

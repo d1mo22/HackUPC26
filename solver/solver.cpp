@@ -2354,6 +2354,8 @@ void print_operator_stats(const string& case_dir, const OperatorStats& stats) {
 
 void solve_case(const string& case_dir) {
     auto case_start = Clock::now();
+    auto deadline = case_start + chrono::duration_cast<chrono::steady_clock::duration>(
+        chrono::duration<double>(WALL_BUDGET));
 
     cout << "\n=== Solving " << case_dir << " ===\n";
 
@@ -2483,7 +2485,7 @@ void solve_case(const string& case_dir) {
     cout << "[time] " << case_dir << " elapsed=" << seconds_since(case_start) << "s\n";
 }
 
-int main() {
+int main(int argc, char* argv[]) {
     auto total_start = Clock::now();
     vector<string> cases_to_run = discover_test_cases();
 

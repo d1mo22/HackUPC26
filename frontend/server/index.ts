@@ -10,8 +10,9 @@ import { fileURLToPath } from 'url'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const SOLVER_DIR = join(__dirname, '../../solver')
 const SOLVER_BIN = join(SOLVER_DIR, 'solver')
+const GREEDY_BIN = join(SOLVER_DIR, 'greedy')
 
-// Build the C++ solver on startup
+// Build both binaries on startup
 try {
   console.log('Building solver...')
   execFileSync('make', ['-C', SOLVER_DIR], { stdio: 'inherit' })
@@ -26,6 +27,28 @@ const upload = multer({ storage: multer.memoryStorage() })
 
 app.use(cors())
 
+function parseQ(csv: string): number {
+  // Parse solution CSV and extract Q — but we don't have warehouse/obstacle
+  // area here, so we just count bays/price/loads from the CSV and can't
+  // compute Q without the area. Instead we rely on the solver printing Q
+  // in its stdout and parse that.
+  return Infinity
+}
+
+function runBinary(bin: string, args: string[], timeout: number): Promise<{ stdout: string; stderr: string; code: number }> {
+  return new Promise(resolve => {
+    execFile(bin, args, { timeout }, (err, stdout, stderr) => {
+      resolve({ stdout, stderr, code: err?.code ?? 0 })
+    })
+  })
+}
+
+function extractQ(stdout: string): number {
+  // solver prints "Q=1234.56", greedy prints "Quality: 1234.56"
+  const m = stdout.match(/Q=([\d.]+)/) ?? stdout.match(/Quality:\s*([\d.]+)/)
+  return m ? parseFloat(m[1]) : Infinity
+}
+
 app.post(
   '/solve',
   upload.fields([
@@ -34,7 +57,7 @@ app.post(
     { name: 'ceiling',   maxCount: 1 },
     { name: 'types',     maxCount: 1 },
   ]),
-  (req, res) => {
+  async (req, res) => {
     const files = req.files as Record<string, Express.Multer.File[]>
 
     const required = ['warehouse', 'obstacles', 'ceiling', 'types']
@@ -53,25 +76,51 @@ app.post(
       writeFileSync(join(tmpDir, 'ceiling.csv'),       files.ceiling[0].buffer)
       writeFileSync(join(tmpDir, 'types_of_bays.csv'), files.types[0].buffer)
 
-      execFile(SOLVER_BIN, [tmpDir], { timeout: 120_000 }, (err, stdout, stderr) => {
-        console.log(stdout)
-        if (stderr) console.error(stderr)
+      // Run solver and greedy in parallel
+      const [solverResult, greedyResult] = await Promise.all([
+        runBinary(SOLVER_BIN, [tmpDir], 120_000),
+        runBinary(GREEDY_BIN, [tmpDir], 120_000),
+      ])
 
-        const solutionPath = join(tmpDir, 'solution.csv')
-        if (existsSync(solutionPath)) {
-          try {
-            const csv = readFileSync(solutionPath, 'utf-8')
-            res.setHeader('Content-Type', 'text/csv')
-            res.send(csv)
-          } catch (e) {
-            res.status(500).send('Failed to read solution.csv')
-          }
-        } else {
-          res.status(500).send(stderr || err?.message || 'Solver did not produce output')
-        }
+      console.log('[solver]', solverResult.stdout.trim())
+      if (solverResult.stderr) console.error('[solver stderr]', solverResult.stderr)
+      console.log('[greedy]', greedyResult.stdout.trim())
+      if (greedyResult.stderr) console.error('[greedy stderr]', greedyResult.stderr)
 
+      const solverQ = extractQ(solverResult.stdout)
+      const greedyQ = extractQ(greedyResult.stdout)
+
+      console.log(`Q comparison — solver: ${solverQ}  greedy: ${greedyQ}`)
+
+      const solverSolution = join(tmpDir, 'solution.csv')
+      const greedySolution = join(tmpDir, 'solution_greedy.csv')
+
+      // Pick the solution with lower Q
+      let chosenPath: string
+      if (existsSync(greedySolution) && greedyQ < solverQ) {
+        chosenPath = greedySolution
+        console.log('Winner: greedy')
+      } else if (existsSync(solverSolution)) {
+        chosenPath = solverSolution
+        console.log('Winner: solver')
+      } else if (existsSync(greedySolution)) {
+        chosenPath = greedySolution
+        console.log('Winner: greedy (solver produced no output)')
+      } else {
+        res.status(500).send('Neither solver nor greedy produced output')
         rmSync(tmpDir, { recursive: true, force: true })
-      })
+        return
+      }
+
+      try {
+        const csv = readFileSync(chosenPath, 'utf-8')
+        res.setHeader('Content-Type', 'text/csv')
+        res.send(csv)
+      } catch (e) {
+        res.status(500).send('Failed to read solution')
+      }
+
+      rmSync(tmpDir, { recursive: true, force: true })
     } catch (e) {
       rmSync(tmpDir, { recursive: true, force: true })
       res.status(500).send(String(e))

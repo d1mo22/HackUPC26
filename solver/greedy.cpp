@@ -1366,22 +1366,28 @@ void solve_case(const string& case_dir) {
     cout << "Quality: " << q << "\n";
     cout << "Time: " << seconds_since(start) << "s\n";
     
-    ofstream out(case_dir + "/solution.csv");
+    ofstream out(case_dir + "/solution_greedy.csv");
     out << "Id,X,Y,Rotation\n";
     for (auto& p : sol) {
         out << p.id << "," << llround(p.x) << "," << llround(p.y) << "," << p.angle << "\n";
     }
-    cout << "Saved: " << case_dir + "/solution.csv" << "\n";
+    cout << "Saved: " << case_dir + "/solution_greedy.csv" << "\n";
 
     print_area_info(warehouse, obstacles);
 }
 
-int main() {
+int main(int argc, char* argv[]) {
     auto start = Clock::now();
-    for (auto& c : CASES) {
-        ifstream f(c + "/warehouse.csv");
-        if (f.good()) solve_case(c);
+    if (argc >= 2) {
+        // CLI mode: solve a single case directory
+        solve_case(argv[1]);
+    } else {
+        // Discovery mode: solve known cases
+        for (auto& c : CASES) {
+            ifstream f(c + "/warehouse.csv");
+            if (f.good()) solve_case(c);
+        }
+        cout << "\nTotal time: " << seconds_since(start) << "s\n";
     }
-    cout << "\nTotal time: " << seconds_since(start) << "s\n";
     return 0;
 }

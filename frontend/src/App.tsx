@@ -128,7 +128,7 @@ export default function App() {
       const placements = await parseSolution(file, warehouseCase.bayTypes)
       const sol: Solution = { placements }
       const elapsedMs = Date.now() - solverStartRef.current
-      const metrics = computeMetrics(placements, warehouseCase.bayTypes, warehouseCase.polygon)
+      const metrics = computeMetrics(placements, warehouseCase.bayTypes, warehouseCase.polygon, warehouseCase.obstacles)
       const record: RunRecord = {
         id: nextRunId++,
         solution: sol,

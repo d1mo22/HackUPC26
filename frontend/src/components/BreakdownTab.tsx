@@ -52,7 +52,7 @@ export default function BreakdownTab({ solution, warehouseCase }: Props) {
       </p>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {rows.map(({ id, type, count, ratio }) => {
+        {rows.map(({ id, count, ratio }) => {
           const color = id === bestId
             ? 'var(--color-accent)'
             : id === worstId

@@ -28,7 +28,7 @@ namespace fs = std::filesystem;
 //const vector<string> CASES = {"Case0", "CaseWeird", "CaseAngledD", "CaseDiagArmD", "CaseForcedAngle"};
 const vector<string> PREFERRED_CASE_ORDER = {"CaseWeird", "Case1", "Case2", "Case3", "Case0", "Case40", "CaseAngledA", "CaseAngledB", "CaseAngledC", "CaseAngledD", "CaseDiagArmA", "CaseDiagArmB", "CaseDiagArmC", "CaseDiagArmD","CaseForcedAngle"};
 
-const int ITERATIONS = 450;          // legacy ceiling — actual stop is the deadline
+const int ITERATIONS = 1000;          // legacy ceiling — actual stop is the deadline
 const double CASE_BUDGET_SECONDS = 25.0;  // wall budget per restart; restarts run in parallel
 const int INITIAL_ADDS = 80;
 const int RESTARTS = 10;
@@ -1778,7 +1778,6 @@ bool is_valid_solution(
                 ceiling,
                 i
             )) {
-            cerr << "Invalid bay " << i << "\n";
             return false;
         }
     }
@@ -2104,7 +2103,7 @@ vector<PlacedBay> hill(
     const int DECAY_PERIOD = 300;
     int iter = 0;
 
-    while (Clock::now() < deadline) {
+    while (Clock::now() < deadline && iter < ITERATIONS) {
 
         vector<PlacedBay> candidate = best;
 
@@ -2247,7 +2246,7 @@ vector<PlacedBay> hill_sa(
     const int DECAY_PERIOD = 300;
     int iter = 0;
 
-    while (Clock::now() < deadline) {
+    while (Clock::now() < deadline && iter < ITERATIONS) {
         // Mutations are applied to current (SA chain), not to best.
         vector<PlacedBay> candidate = current;
 
@@ -2356,24 +2355,15 @@ void print_operator_stats(const string& case_dir, const OperatorStats& stats) {
 void solve_case(const string& case_dir) {
     auto case_start = Clock::now();
 
-    cout << "\n=== Solving " << case_dir << " ===\n";
+    cout << "=== Solving " << case_dir << " ===\n";
 
     auto warehouse = read_warehouse(case_dir + "/warehouse.csv");
     auto obstacles = read_obstacles(case_dir + "/obstacles.csv");
     auto ceiling = read_ceiling(case_dir + "/ceiling.csv");
     auto types = read_bays(case_dir + "/types_of_bays.csv");
 
-    double total_wh_area = polygon_area(warehouse);
-    double obs_area = obstacles_area(obstacles);
     double wh_area = available_warehouse_area(warehouse, obstacles);
-
     bool axis_aligned = warehouse_is_axis_aligned(warehouse);
-
-    cout << "area_total=" << total_wh_area
-         << " obstacles_area=" << obs_area
-         << " available_area=" << wh_area
-         << " axis_aligned=" << axis_aligned
-         << "\n";
 
     auto deadline = Clock::now() + chrono::milliseconds((long long)(CASE_BUDGET_SECONDS * 1000.0));
 
@@ -2381,9 +2371,6 @@ void solve_case(const string& case_dir) {
         int mode = r % 4;
 
         rng.seed(42 + r * 1000 + (int)(hash<string>{}(case_dir) % 100000));
-
-        cout << "Restart " << r + 1 << "/" << RESTARTS
-             << " started | mode=" << mode << "\n";
 
         int strategy = r % 4;
         auto sol = build_initial(types, warehouse, obstacles, ceiling, wh_area, mode, axis_aligned, strategy);
@@ -2405,19 +2392,6 @@ void solve_case(const string& case_dir) {
             sol = hill_sa(sol, types, warehouse, obstacles, ceiling, wh_area, mode, stats, axis_aligned, deadline, t0_frac);
         }
 
-        auto [af, lf, pf, qf] = details(sol, wh_area);
-
-        bool valid = is_valid_solution(sol, warehouse, obstacles, ceiling);
-
-        cout << "Restart " << r + 1
-             << " -> bays=" << sol.size()
-             << " area=" << af
-             << " loads=" << lf
-             << " price=" << pf
-             << " Q=" << qf
-             << " valid=" << valid
-             << "\n";
-
         return make_pair(sol, stats);
     };
 
@@ -2429,18 +2403,11 @@ void solve_case(const string& case_dir) {
 
     vector<PlacedBay> best_global;
     double best_global_q = 1e100;
-    OperatorStats total_stats;
 
     for (int r = 0; r < RESTARTS; r++) {
         auto result = futures[r].get();
 
         vector<PlacedBay> sol = result.first;
-        OperatorStats stats = result.second;
-
-        for (int i = 0; i < NUM_OPERATORS; i++) {
-            total_stats.tried[i] += stats.tried[i];
-            total_stats.improved[i] += stats.improved[i];
-        }
 
         auto [a, l, pr, q] = details(sol, wh_area);
         bool valid = is_valid_solution(sol, warehouse, obstacles, ceiling);
@@ -2471,30 +2438,34 @@ void solve_case(const string& case_dir) {
 
     auto [a, l, pr, q] = details(best_global, wh_area);
 
-    cout << "BEST " << case_dir << "\n";
-    cout << "bays=" << best_global.size()
+    cout << "BEST bays=" << best_global.size()
          << " area=" << a
          << " loads=" << l
          << " price=" << pr
-         << " Q=" << q << "\n";
-
-    print_operator_stats(case_dir, total_stats);
-
-    cout << "Written: " << out_path << "\n";
-    cout << "[time] " << case_dir << " elapsed=" << seconds_since(case_start) << "s\n";
+         << " Q=" << q
+         << " elapsed=" << seconds_since(case_start) << "s"
+         << " -> " << out_path << "\n";
 }
 
 int main(int argc, char* argv[]) {
     auto total_start = Clock::now();
-    vector<string> cases_to_run = discover_test_cases();
 
-    cout << "test_cases_found=" << cases_to_run.size() << "\n";
+    if (argc >= 2) {
+        // CLI mode: solve a single case directory passed as argv[1].
+        // The directory is expected to contain warehouse.csv, obstacles.csv,
+        // ceiling.csv and types_of_bays.csv flat (no CaseX/ subfolder).
+        // solution.csv is written into the same directory.
+        solve_case(argv[1]);
+    } else {
+        // Discovery mode: scan CWD for CaseX/ subfolders containing the four CSVs.
+        vector<string> cases_to_run = discover_test_cases();
 
-    for (auto& c : cases_to_run) {
-        solve_case(c);
+        for (auto& c : cases_to_run) {
+            solve_case(c);
+        }
+
+        cout << "total elapsed=" << seconds_since(total_start) << "s\n";
     }
-
-    cout << "\n[time] total elapsed=" << seconds_since(total_start) << "s\n";
 
     return 0;
 }

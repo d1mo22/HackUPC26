@@ -10,7 +10,7 @@ interface Props {
 
 export default function MetricsPanel({ solution, warehouseCase }: Props) {
   const metrics = solution && warehouseCase
-    ? computeMetrics(solution.placements, warehouseCase.bayTypes, warehouseCase.polygon)
+    ? computeMetrics(solution.placements, warehouseCase.bayTypes, warehouseCase.polygon, warehouseCase.obstacles)
     : null
 
   return (

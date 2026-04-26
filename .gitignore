@@ -1,4 +1,30 @@
-.superpowers/
+# OS
 .DS_Store
-./api/package.json
-./api/package-lock.json
+*.swp
+
+# Editor
+.idea/
+.vscode/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Node (per-subdir gitignores also exist)
+node_modules/
+
+# Build artifacts / compiled binaries
+solver/solver
+solver/solver_*
+solver/*.o
+solver/test_init
+*.exe
+
+# Generated images / scratch outputs
+solver/*.png
+solver/results.txt
+
+# Superpowers cache
+.superpowers/

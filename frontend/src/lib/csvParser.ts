@@ -21,7 +21,7 @@ function toInt(s: string): number {
 function skipHeaders(rows: string[][]): string[][] {
   return rows.filter(row => row.length > 0 && !isNaN(parseInt(row[0]?.trim(), 10)))
 }
-function validate(rows: string[][], expectedCols: number, name: string, minRows = 1, colNames?: string[]) {
+function validate(rows: string[][], expectedCols: number, _name: string, minRows = 1, colNames?: string[]) {
   const colHint = colNames ? ` (${colNames.join(', ')})` : ''
   if (rows.length < minRows) {
     throw new Error(`Expected at least ${minRows} row${minRows !== 1 ? 's' : ''}, found ${rows.length}`)

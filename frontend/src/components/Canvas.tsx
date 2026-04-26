@@ -257,13 +257,19 @@ export default function Canvas({
     if (!polygon || canvasSize.w === 0 || viewMode === '3d') return
     const padding = 32
     const bounds = polygonBounds(polygon)
-    const scaleX = (canvasSize.w - 2 * padding) / (bounds.maxX - bounds.minX)
-    const scaleY = (canvasSize.h - 2 * padding) / (bounds.maxY - bounds.minY)
+    const worldW = bounds.maxX - bounds.minX
+    const worldH = bounds.maxY - bounds.minY
+    const scaleX = (canvasSize.w - 2 * padding) / worldW
+    const scaleY = (canvasSize.h - 2 * padding) / worldH
     const scale = Math.min(scaleX, scaleY)
+    // Center the polygon: distribute leftover slack on the non-binding axis equally.
+    // 2D convention: screen_x = offsetX + wx*scale, screen_y = offsetY - wy*scale.
+    const drawnW = worldW * scale
+    const drawnH = worldH * scale
     setTransform({
       scale,
-      offsetX: padding - bounds.minX * scale,
-      offsetY: padding + bounds.maxY * scale,
+      offsetX: (canvasSize.w - drawnW) / 2 - bounds.minX * scale,
+      offsetY: (canvasSize.h - drawnH) / 2 + bounds.maxY * scale,
     })
   }, [polygon, canvasSize, viewMode, setTransform])
 

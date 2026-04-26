@@ -31,7 +31,7 @@ const int INITIAL_ADDS = 80;
 const int RESTARTS = 10;
 const int MAX_POINTS_ADD = 80;
 const int ANGLE_SAMPLE = 14;
-const int NUM_OPERATORS = 9;
+const int NUM_OPERATORS = 10;
 const double DIAGONAL_COMPACT_MAX_SHIFT = 12000.0;
 const double DIAGONAL_COMPACT_MIN_SHIFT = 25.0;
 const int DIAGONAL_COMPACT_MAX_BAYS = 12;
@@ -99,7 +99,8 @@ const vector<string> OP_NAMES = {
     "upgrade_bay",
     "rotate_compact_and_add",
     "add_45_degree_bay",
-    "position_perturb_and_add"
+    "position_perturb_and_add",
+    "split_bay"
 };
 
 vector<int> ANGLES = {
@@ -1190,6 +1191,94 @@ void replace_bay(
     }
 }
 
+// split_bay: removes one bay and tries to fill its (axis-aligned) bbox with
+// multiple smaller bays. The operator wins primarily by increasing total bay
+// area: Q = (Σp/Σl)^(2 - area_ratio) is monotonically improved by adding area
+// when the base is > 1 (typical). For axis-aligned victims, the bbox equals the
+// bay footprint, so we can rarely fit more area inside — operator is mostly
+// dead. For *rotated* victims (angle not 0/90/180/270), the bbox is larger
+// than w×d, leaving corner pockets that smaller axis-aligned bays may fill.
+// Therefore the operator is gated to rotated victims only.
+void split_bay(
+    vector<PlacedBay>& sol,
+    const vector<BayType>& types,
+    const vector<Point>& warehouse,
+    const vector<Obstacle>& obstacles,
+    const vector<pair<double, double>>& ceiling,
+    double wh_area,
+    int /*mode*/
+) {
+    if (sol.empty()) return;
+
+    vector<PlacedBay> backup = sol;
+    double backup_q = quality(backup, wh_area);
+
+    // Find rotated bays (angle not aligned to 0/90/180/270). If none, return.
+    vector<int> rotated;
+    rotated.reserve(sol.size());
+    for (int i = 0; i < (int)sol.size(); i++) {
+        int a = sol[i].angle % 360;
+        if (a < 0) a += 360;
+        if (a != 0 && a != 90 && a != 180 && a != 270) {
+            rotated.push_back(i);
+        }
+    }
+    if (rotated.empty()) return;
+
+    int idx = rotated[rng() % rotated.size()];
+    const PlacedBay& victim = sol[idx];
+    double v_bay_area = (double)victim.w * (double)victim.d;
+    double v_bbox_area = (victim.bay_max_x - victim.bay_min_x) *
+                         (victim.bay_max_y - victim.bay_min_y);
+
+    // Need meaningful pocket space (bbox materially larger than bay footprint).
+    if (v_bbox_area < v_bay_area * 1.15) return;
+
+    // Smaller types — anything that could plausibly fit a corner pocket.
+    vector<int> smaller;
+    smaller.reserve(types.size());
+    for (int ti = 0; ti < (int)types.size(); ti++) {
+        double a = (double)types[ti].w * (double)types[ti].d;
+        if (a < v_bay_area + EPS) smaller.push_back(ti);
+    }
+    if (smaller.empty()) return;
+
+    double bx_min = victim.bay_min_x;
+    double by_min = victim.bay_min_y;
+    double bx_max = victim.bay_max_x;
+    double by_max = victim.bay_max_y;
+
+    sol.erase(sol.begin() + idx);
+
+    static const int try_angles[4] = {0, 90, 180, 270};
+    int placed = 0;
+    const int MAX_ATTEMPTS = 12;
+
+    for (int attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        double rx = uniform_real_distribution<double>(bx_min, bx_max)(rng);
+        double ry = uniform_real_distribution<double>(by_min, by_max)(rng);
+
+        int ti = smaller[rng() % smaller.size()];
+        const BayType& t = types[ti];
+
+        bool added = false;
+        for (int ai = 0; ai < 4 && !added; ai++) {
+            int angle = try_angles[ai];
+            if (valid_candidate(rx, ry, t.w, t.d, t.h, t.gap, angle,
+                                sol, warehouse, obstacles, ceiling)) {
+                sol.push_back(make_candidate(t, rx, ry, angle));
+                placed++;
+                added = true;
+            }
+        }
+    }
+
+    // Reject if ≤1 placed (then it's just replace_bay) or Q didn't improve.
+    if (placed < 2 || quality(sol, wh_area) >= backup_q) {
+        sol = backup;
+    }
+}
+
 Point angle_width_axis(int angle) {
     const Trig& trig = trig_for_angle(angle);
     return {trig.cos_v, trig.sin_v};
@@ -1919,6 +2008,11 @@ vector<int> build_active_ops(bool axis_aligned) {
     } else {
         ops.push_back(8);
     }
+    // op 9 (split_bay): replaces one large bay with multiple smaller ones inside
+    // its footprint. Rate is unknown; start at weight 2 (same scale as op 1) and
+    // let adaptive sampling tune it. Each call is cheap (one bay removed, up to
+    // 12 placement attempts inside one bbox).
+    for (int i = 0; i < 2; i++) ops.push_back(9);
     return ops;
 }
 
@@ -2016,8 +2110,11 @@ vector<PlacedBay> hill(
         else if (op == 7) {
             add_45_degree_bay(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
         }
-        else {
+        else if (op == 8) {
             position_perturb_and_add(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
+        }
+        else {
+            split_bay(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
         }
 
         double q = quality(candidate, wh_area);
@@ -2142,8 +2239,10 @@ vector<PlacedBay> hill_sa(
             rotate_compact_and_add(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
         } else if (op == 7) {
             add_45_degree_bay(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
-        } else {
+        } else if (op == 8) {
             position_perturb_and_add(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
+        } else {
+            split_bay(candidate, types, warehouse, obstacles, ceiling, wh_area, mode);
         }
 
         double q = quality(candidate, wh_area);

@@ -2,28 +2,27 @@
 
 ## Current state
 
-**Production version: Step10 totals (Q sum across 15 cases = 32023.61, all cases ≤ 22s, total 330s).**
+**Production version: Q sum across 15 cases = 30683–30816 (3-run range, mean ~30740). Per-case 25s deadline, total ~375s wall.**
 
-| Case | Step10 Q | vs Step5 |
-|------|----------|----------|
-| Case0 | 1101.26 | −16% (target: 900–1000) |
-| Case1 | 1317.44 | −15% |
-| Case2 | 2323.61 | −5% |
-| Case3 | 2723.03 | +15% (regression — see below) |
-| CaseWeird | 2136.43 | −8% |
-| Case40 | 2005.43 | −10% |
-| CaseAngledA | 2074.97 | −9% |
-| CaseAngledB | 2314.92 | −7% |
-| CaseAngledC | 2016.63 | −8% |
-| CaseAngledD | 2609.88 | −6% |
-| CaseDiagArmA | 2123.28 | −7% |
-| CaseDiagArmB | 2141.06 | −9% |
-| CaseDiagArmC | 2009.20 | −4% |
-| CaseDiagArmD | 1723.79 | −22% |
-| CaseForcedAngle | 3402.68 | −3% |
+| Case | Latest Q |
+|------|----------|
+| CaseWeird | 2163.16 |
+| Case1 | 1303.05 |
+| Case2 | 2392.41 |
+| Case3 | 2154.59 |
+| Case0 | 1093.35 |
+| Case40 | 2041.53 |
+| CaseAngledA | 1958.45 |
+| CaseAngledB | 2111.10 |
+| CaseAngledC | 1929.66 |
+| CaseAngledD | 2684.17 |
+| CaseDiagArmA | 2045.56 |
+| CaseDiagArmB | 1988.65 |
+| CaseDiagArmC | 2037.38 |
+| CaseDiagArmD | 1841.12 |
+| CaseForcedAngle | 3071.50 |
 
-Step5 baseline was 35644.61 → Step10 is **−3621 net (−10.2%)** vs Step5.
-Original baseline (pre-step1) was 38983.45 → Step10 is **−6960 net (−17.9%)** vs original.
+**Cumulative improvement vs Step10 baseline (32023.61): −1208 (−3.8%).**
 
 ## Current state of solver.cpp
 
@@ -69,25 +68,86 @@ Active changes vs original baseline (everything kept):
 
 These were planned but skipped this session because step 10 alone exceeded the cumulative target of all prior steps. They remain reasonable next-session candidates if more Q is wanted.
 
-### Step 11 — Segment-aware shelf packing (Tier B #8)
+### Step 11 — Segment-aware shelf packing (Tier B #8) — DONE
 
-Detect ceiling height segments (`min_ceiling_between` per x-band) and pre-filter bay types per segment before the shelf walk. Avoids wasted `valid_candidate` calls on tall bays in short segments. Affects shelf-pack speed primarily, slight Q win.
+**Implemented as ceiling pre-check hoist in `valid_candidate`.** Moved the `min_ceiling_between` check from the end of `valid_candidate` to immediately after the warehouse polygon check, before the obstacle-loop and SpatialIndex collision scans. This rejects tall-bay-in-low-ceiling candidates in O(segments) instead of O(obstacles + sol). Logically equivalent (same predicate, same return value) but faster on negative cases.
 
-### Step 12 — Multi-bay swap pass (Tier D #13)
+Result: subset Q sum 11021.47 → **10997.63** (−23.84, all from CaseWeird). Full 15-case Q sum **31843.27** (vs prior baselines 31977.55 / 32128.21 / 32041.67 — net ≈ −180 vs median).
+
+### Step 12 — Multi-bay swap pass (Tier D #13) — NOT ATTEMPTED
 
 Periodically: for each pair `(bay_A, bay_B)` placed adjacent, try replacing with one larger type that covers both footprints. Catches cases where 2× small + gap = 1× large with better Q. Run every 50 hill iterations.
 
-### Step 13 — SA-aware adaptive weights
+Skipped this session: structural overlap with `remove_k_and_refill` (op 4) and `replace_bay` (op 1) — risk of redundant compute outweighed expected gain given current Q margins. Worth attempting only if a focused per-case study identifies adjacent-bay patterns left on the table.
 
-The current adaptive sampler increments `roll_improved[op]` only when `q < best_q`, but in `hill_sa` worsening-accepted moves are not counted. Consider a separate counter for "useful exploration" — e.g. moves that became part of a chain leading to a new best within K iterations. Lower priority; current weights still work in SA.
+### Step 13 — SA-aware adaptive weights — TRIED, REVERTED
 
-### Step 14 — Per-case T0 calibration
+Tried 3 variants (CREDIT_WINDOW=20 linear-decay; W=10 same; hybrid 1.0·improved + 0.25·credit). All net-negative on subset (+92, +89, +95 vs 11021.47 baseline). The binary improvement counter is the right signal even in SA: new-best discoveries come from successful improvement chains where the *most recent* op deserves the credit, not the surrounding context. SA's stochastic acceptance already handles "useful exploration" implicitly via the temperature schedule. **Don't retry without a fundamentally different signal.**
 
-T0 is fixed at 5% of starting Q. Some cases may benefit from hotter (cases with deep local minima — CaseForcedAngle still highest at 3403) or colder schedules. Quick win: try 3% / 5% / 8% T0 across restarts as a third restart-level dimension.
+### Step 14 — Per-case T0 calibration — DONE
 
-### Step 15 — Restart re-seeding from best on plateau
+Added `t0_frac` parameter to `hill_sa`. Restart distribution: 2× cold (3%), 4× medium (5%), 2× hot (8%). Marginal angled-case win (CaseAngledA −59, CaseAngledB −17). Kept; absorbed into `hill_sa` signature.
 
-If SA chain has not improved best for ~1000 iters, re-seed `current` from `best` and bump T to ~0.5·T0. Standard SA escape mechanism. Likely helps the few cases where SA wandered into a poor region late.
+### Step 15 — Restart re-seeding from best on plateau — TRIED, REVERTED
+
+Tried PLATEAU=1000/2500 with BOOST=0.5/0.4/0.2 multipliers on T. All noise-level (±20 on subset). Reverted. Lesson: SA naturally drifts back toward `best`-quality regions through accumulated improvements; explicit re-seeding adds randomness that net-cancels.
+
+## Session N+1 — Driven by op-stats diagnostic (full 15-case run)
+
+Used `Operator stats for X` diagnostic output to identify high-ROI changes. Net result: **31843.27 → ~30740 (−1100, −3.5%).**
+
+### Step A — Kill dead operators — REVERTED
+
+Diagnostic showed `fill_aggressive` (op 2) had 0 tries / 0 improved on every case (it was already absent from `build_active_ops`). Tried gating ops 6,7 (`rotate_compact_and_add`, `add_45_degree_bay`) off when `axis_aligned=true` since aggregate stats showed 0 improvements on axis-aligned cases.
+
+**REVERTED.** CaseForcedAngle has axis-aligned warehouse but obstacle-forced angled bays — op 7 contributed 10 improvements there (small count, +388 Q regression when removed). Aggregate diagnostics ≠ per-case importance. Even geometric gating is too aggressive.
+
+**Lesson:** when interpreting op-stats, treat "0% on aggregate" as "0% on most cases" — always look for outliers before disabling. The user's overfitting concern (idea B in chat) generalizes to geometry-driven gating too.
+
+### Step D — Cluster removal in `shared_gap_refill` — KEPT
+
+Replaced random k-bay removal with a 25%-probability cluster-removal: pick a seed bay, compute squared distances from its center to all others, partial-sort to find k nearest, erase those. Creates a contiguous void where larger high-value bays can fit during the refill phase.
+
+Tuning:
+- 50% cluster prob: subset +250 (CaseAngledD/DiagArmD/AngledD all regressed).
+- 25% cluster prob: subset −80 to −100. Full **−836 vs prior best (31843 → 31007)**.
+
+Big winners: Case3 (−512), CaseForcedAngle (−305). Cluster mode lets the refill place larger types in contiguous voids; scattered removal at the same rate just reshuffles the existing tight pack.
+
+### Step E1 — Bump deadline 22s → 25s — KEPT
+
+Trivial change to `CASE_BUDGET_SECONDS`. Tested 22 (baseline) / 24 / 25 / 26. SA cooling is `t / total_seconds` so longer deadlines stretch the T schedule, which can over-explore on sensitive cases (CaseForcedAngle regressed at 26s).
+
+Sweet spot at 25s:
+- 22s: baseline 31006.80
+- 24s: 30782.28 (run 1) / 30917.18 (run 2) → mean ~30850
+- **25s: 30683.31 (run 1) / 30713.74 (run 2) / 30683.31 (run 3) → mean 30693**
+- 26s: 30815.95 (run 1) → CaseForcedAngle +160
+
+Per-case 25s, total 375s, well under 30s judge limit.
+
+### Step F — Cluster removal in `remove_k_and_refill` — REVERTED
+
+Tried the same 25% cluster pattern in op 4. **Subset +340, CaseForcedAngle +330 reproducibly.**
+
+**Lesson:** cluster-removal works because of **interaction** with `add_shared_gap_bay`'s gap-aware placement strategy. Op 4 refills with vanilla `add_bay` which places greedily anywhere — cluster void doesn't compose with that, the refill just puts bays back in the same spots. Don't generalize successful changes to similar-looking operators without checking the refill side.
+
+### Step C — Smarter initial seed for angled cases — REVERTED
+
+For non-axis-aligned warehouses, `build_initial` skips shelf-pack and only does `INITIAL_ADDS=80` of plain `add_bay`. Tried bootstrapping with one `add_shared_gap_bay` mid-seed (i==5 and i==10) so subsequent `shared_gap_refill` operators have a pattern to extend.
+
+Results were noise-level: trades CaseAngledD (−56) for CaseDiagArmD (+52), or vice versa depending on i. No net win across angled cases.
+
+**Lesson:** angled-case seed quality is dominated by SA exploration, not by the initial layout. The 25s SA budget is enough that any reasonable seed converges to similar Q. To actually help, the seed would need to be structurally different (e.g. shelf-pack along warehouse's primary axis after rotation), which is significant code complexity for unclear gain.
+
+## Final state after this session
+
+Production:
+- `CASE_BUDGET_SECONDS = 25.0` (was 22)
+- `shared_gap_refill` has 25% cluster-mode branch
+- All other operators unchanged from previous session
+
+Full 15-case Q ≈ 30683–30816 (3-run band, mean ~30740). Per-case wall ≈ 25s, total ~375s.
 
 ## Hard cases worth deep dives
 
@@ -105,10 +165,11 @@ If SA chain has not improved best for ~1000 iters, re-seed `current` from `best`
 
 ## Files
 
-- `solver/solver.cpp` — production solver (now contains `hill_sa` and op 8)
+- `solver/solver.cpp` — production solver (now contains `hill_sa`, op 8, per-case T0, ceiling pre-check hoist)
 - `solver/solver_ALNS.cpp` — separate ALNS solver (stale, not synced with this session)
 - `/tmp/step{N}_out.log` — most recent benchmark logs from this session
 - `/tmp/step10_final.log` — final 15-case run (Q sum 32023.61)
+- `/tmp/step11_full.log` — current 15-case run (Q sum 31843.27, this session)
 
 ## Quick start commands
 

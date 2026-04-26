@@ -22,11 +22,11 @@ using Clock = chrono::steady_clock;
 // axis-aligned dense, axis-aligned sparse-fast, large angled, diag-arm,
 // and the forced-angle outlier — covers the dimensions where regressions
 // have historically shown up. Use the full 15-case list for final eval.
-const vector<string> CASES = {"Case0", "CaseWeird", "CaseAngledD", "CaseDiagArmD", "CaseForcedAngle"};
-//const vector<string> CASES = {"CaseWeird", "Case1", "Case2", "Case3", "Case0", "Case40", "CaseAngledA", "CaseAngledB", "CaseAngledC", "CaseAngledD", "CaseDiagArmA", "CaseDiagArmB", "CaseDiagArmC", "CaseDiagArmD","CaseForcedAngle"};
+//const vector<string> CASES = {"Case0", "CaseWeird", "CaseAngledD", "CaseDiagArmD", "CaseForcedAngle"};
+const vector<string> CASES = {"CaseWeird", "Case1", "Case2", "Case3", "Case0", "Case40", "CaseAngledA", "CaseAngledB", "CaseAngledC", "CaseAngledD", "CaseDiagArmA", "CaseDiagArmB", "CaseDiagArmC", "CaseDiagArmD","CaseForcedAngle"};
 
 const int ITERATIONS = 450;          // legacy ceiling — actual stop is the deadline
-const double CASE_BUDGET_SECONDS = 22.0;  // wall budget per restart; restarts run in parallel
+const double CASE_BUDGET_SECONDS = 25.0;  // wall budget per restart; restarts run in parallel
 const int INITIAL_ADDS = 80;
 const int RESTARTS = 10;
 const int MAX_POINTS_ADD = 80;
@@ -714,6 +714,15 @@ bool valid_candidate(
 
     if (!polygon_inside_polygon(candidate_bay, warehouse)) return false;
 
+    // Ceiling pre-check hoisted before obstacle/collision tests: a tall bay in
+    // a low-ceiling region is rejected here in O(segments) instead of after
+    // the full O(obstacles + sol) scan. The bay-x span is computed from the
+    // already-built candidate polygon bb (cand_bb) which equals minmax_x.
+    {
+        double min_h = min_ceiling_between(cand_bb.min_x, cand_bb.max_x, ceiling);
+        if (h > min_h + EPS) return false;
+    }
+
     if (!candidate_gap.empty()) {
         if (!polygon_inside_polygon(candidate_gap, warehouse)) return false;
     }
@@ -777,11 +786,6 @@ bool valid_candidate(
             if (!check_against(i)) return false;
         }
     }
-
-    auto bx = minmax_x(candidate_bay);
-    double min_h = min_ceiling_between(bx.first, bx.second, ceiling);
-
-    if (h > min_h + EPS) return false;
 
     return true;
 }
@@ -1447,9 +1451,41 @@ void shared_gap_refill(
 
     int k = min(6, max(2, (int)sol.size() / 4));
 
-    for (int i = 0; i < k && !sol.empty(); i++) {
-        int idx = rng() % sol.size();
-        sol.erase(sol.begin() + idx);
+    // Cluster removal: 25% chance to remove the k bays nearest to a randomly
+    // chosen seed (contiguous spatial void → larger refill opportunities), else
+    // fall back to scattered random removal (broader exploration). Empirically
+    // 50% over-rotated towards cluster mode and hurt angled cases; 25% gives
+    // cluster a meaningful presence without dominating the operator's behavior.
+    bool cluster_mode = (rng() % 4 == 0) && (int)sol.size() > k;
+
+    if (cluster_mode) {
+        int seed_idx = rng() % sol.size();
+        // Center of seed bay
+        double sx = (sol[seed_idx].bay_min_x + sol[seed_idx].bay_max_x) * 0.5;
+        double sy = (sol[seed_idx].bay_min_y + sol[seed_idx].bay_max_y) * 0.5;
+
+        vector<pair<double, int>> dist_idx;
+        dist_idx.reserve(sol.size());
+        for (int i = 0; i < (int)sol.size(); i++) {
+            double cx = (sol[i].bay_min_x + sol[i].bay_max_x) * 0.5;
+            double cy = (sol[i].bay_min_y + sol[i].bay_max_y) * 0.5;
+            double dx = cx - sx, dy = cy - sy;
+            dist_idx.emplace_back(dx * dx + dy * dy, i);
+        }
+        // Partial sort to find k nearest
+        partial_sort(dist_idx.begin(), dist_idx.begin() + k, dist_idx.end());
+
+        // Collect indices to remove, sort descending, erase in-place
+        vector<int> remove_idx;
+        remove_idx.reserve(k);
+        for (int i = 0; i < k; i++) remove_idx.push_back(dist_idx[i].second);
+        sort(remove_idx.begin(), remove_idx.end(), greater<int>());
+        for (int idx : remove_idx) sol.erase(sol.begin() + idx);
+    } else {
+        for (int i = 0; i < k && !sol.empty(); i++) {
+            int idx = rng() % sol.size();
+            sol.erase(sol.begin() + idx);
+        }
     }
 
     static const vector<int> shared_angles = {

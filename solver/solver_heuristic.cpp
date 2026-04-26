@@ -29,6 +29,15 @@ const vector<string> CASES = {
 const double EPS = 1e-7;
 const double PI = acos(-1.0);
 
+// ============== IMPROVEMENT CONSTANTS ==============
+const double TOTAL_BUDGET_SECONDS = 25.0;
+const int    LOOKAHEAD_K          = 10;
+const int    INTERIOR_GRID_CAP    = 100;
+const double RELAX_FACTOR         = 0.05;
+const double W_LOOKAHEAD          = 0.3;
+const int    REMOVE_TOP_K_FRAC    = 3;   // try top 1/REMOVE_TOP_K_FRAC bays by removal-ΔQ
+const double LOCAL_FILL_RADIUS    = 3.0; // multiplier of max_bay_dim for local fill region
+
 struct Trig { double cos_v, sin_v; };
 
 struct Point { double x, y; };
@@ -827,7 +836,8 @@ struct CornerPoint {
     enum Origin {
         WAREHOUSE_BBOX, CONCAVE_VERTEX,
         BAY_TL, BAY_TR, BAY_BL, BAY_BR,
-        GAP_TL, GAP_TR, GAP_BL, GAP_BR
+        GAP_TL, GAP_TR, GAP_BL, GAP_BR,
+        INTERIOR_GRID
     } origin;
 };
 
@@ -902,6 +912,83 @@ PlacedBay make_candidate_axis_aligned(const BayType& t, double x, double y, int 
     p.angle = (rotation == 0) ? 0 : 90;
     refresh_cache(p);
     return p;
+}
+
+// Generates a regular grid of candidate points inside the warehouse polygon,
+// excluding obstacle interiors. Cap at INTERIOR_GRID_CAP points.
+vector<CornerPoint> interior_grid_points(
+    const vector<Point>& warehouse,
+    const vector<Obstacle>& obstacles,
+    const vector<BayType>& types
+) {
+    if (types.empty()) return {};
+
+    int min_dim = INT_MAX;
+    for (auto& t : types) {
+        min_dim = min(min_dim, min(t.w, t.d));
+    }
+    double step = max(500.0, min(5000.0, min_dim / 2.0));
+
+    Bounds bb = polygon_bounds(warehouse);
+    vector<CornerPoint> out;
+
+    for (double x = bb.min_x; x <= bb.max_x + EPS && (int)out.size() < INTERIOR_GRID_CAP; x += step) {
+        for (double y = bb.min_y; y <= bb.max_y + EPS && (int)out.size() < INTERIOR_GRID_CAP; y += step) {
+            Point p{x, y};
+            if (!point_inside_or_on_polygon(p, warehouse)) continue;
+            bool in_obstacle = false;
+            for (auto& o : obstacles) {
+                if (x > o.x + EPS && x < o.x + o.w - EPS &&
+                    y > o.y + EPS && y < o.y + o.d - EPS) {
+                    in_obstacle = true;
+                    break;
+                }
+            }
+            if (!in_obstacle) {
+                out.push_back({x, y, CornerPoint::INTERIOR_GRID});
+            }
+        }
+    }
+    return out;
+}
+
+// Counts how many valid (type, rotation) placements exist at any corner point
+// within `radius` of `cand`'s bounding box center, given sol already contains cand.
+int count_neighbors(
+    const vector<PlacedBay>& sol_with_cand,
+    const PlacedBay& cand,
+    double radius,
+    const vector<BayType>& types,
+    const vector<Point>& warehouse,
+    const vector<Obstacle>& obstacles,
+    const vector<pair<double,double>>& ceiling
+) {
+    double cx = (cand.bay_min_x + cand.bay_max_x) / 2.0;
+    double cy = (cand.bay_min_y + cand.bay_max_y) / 2.0;
+
+    auto cand_corners = corners_from_placed_bay(cand);
+    auto wh_corners = initial_corner_points(warehouse);
+    for (auto& wc : wh_corners) cand_corners.push_back(wc);
+
+    SpatialIndex idx;
+    idx.build(sol_with_cand);
+
+    int count = 0;
+    for (auto& cp : cand_corners) {
+        double dx = cp.x - cx, dy = cp.y - cy;
+        if (dx*dx + dy*dy > radius*radius) continue;
+        for (auto& t : types) {
+            for (int rot = 0; rot < 2; rot++) {
+                PlacedBay nb = make_candidate_axis_aligned(t, cp.x, cp.y, rot);
+                if (valid_candidate(nb.x, nb.y, nb.w, nb.d, nb.h, nb.gap,
+                                    nb.angle, sol_with_cand, warehouse,
+                                    obstacles, ceiling, -1, &idx)) {
+                    count++;
+                }
+            }
+        }
+    }
+    return count;
 }
 
 // ============== VARIANT + SCORE ==============
@@ -1099,18 +1186,28 @@ vector<PlacedBay> construct_variant(
     vector<int> type_order = sort_types(types, v.type_prio);
     vector<PlacedBay> sol;
     vector<CornerPoint> corners = initial_corner_points(warehouse);
+    // Add interior grid points once at the start (not regenerated per iteration).
+    auto grid_pts = interior_grid_points(warehouse, obstacles, types);
+    for (auto& gp : grid_pts) corners.push_back(gp);
+
+    int iteration = 0;
+    int N_relax = max(5, (int)types.size());
+    int max_bay_dim = 1;
+    for (auto& t : types) max_bay_dim = max(max_bay_dim, max(t.w + t.gap, t.d + t.gap));
+    double lookahead_radius = 2.0 * max_bay_dim;
 
     while (true) {
         sort_corners(corners, v, warehouse);
         QSums sums = compute_sums(sol);
         double Q_now = sol.empty() ? 1e100 : quality_from_sums(sums, wh_area, false);
 
-        struct Best { double score; int cp_idx; int rot; PlacedBay bay; };
-        Best best{-1e100, -1, -1, {}};
+        struct Best { double score; int cp_idx; int ti; int rot; PlacedBay bay; };
+        Best best{-1e100, -1, -1, -1, {}};
 
-        // Build spatial index from current solution for fast collision checks
         SpatialIndex idx;
         idx.build(sol);
+
+        bool use_relax = (!sol.empty() && iteration < N_relax);
 
         for (int ci = 0; ci < (int)corners.size(); ci++) {
             const CornerPoint& cp = corners[ci];
@@ -1123,7 +1220,15 @@ vector<PlacedBay> construct_variant(
                         continue;
                     double bay_area = (double)cand.w * cand.d;
                     double Q_new = quality_with_added(sums, cand.price, cand.loads, bay_area, wh_area);
-                    if (!sol.empty() && Q_new >= Q_now - EPS) continue;
+                    bool passes_q;
+                    if (sol.empty()) {
+                        passes_q = true;
+                    } else if (use_relax) {
+                        passes_q = (Q_new <= Q_now * (1.0 + RELAX_FACTOR));
+                    } else {
+                        passes_q = (Q_new < Q_now - EPS);
+                    }
+                    if (!passes_q) continue;
                     double s = score_candidate(cand,v,norms,sol,warehouse,obstacles,ceiling);
                     bool win = (s > best.score + EPS);
                     if (!win && fabs(s - best.score) <= EPS) {
@@ -1134,7 +1239,7 @@ vector<PlacedBay> construct_variant(
                             else if (t.id == best.bay.id && rot < best.rot) win = true;
                         }
                     }
-                    if (win) best = {s, ci, rot, cand};
+                    if (win) best = {s, ci, ti, rot, cand};
                 }
             }
         }
@@ -1145,6 +1250,7 @@ vector<PlacedBay> construct_variant(
         auto new_corners = corners_from_placed_bay(best.bay);
         for (auto& nc : new_corners) corners.push_back(nc);
         filter_corners_inside_envelope(corners, best.bay);
+        iteration++;
     }
 
     return sol;
@@ -1170,7 +1276,240 @@ vector<Variant> all_variants() {
     };
 }
 
-void solve_case(const string& case_dir) {
+// ============== IMPROVEMENT OPERATORS ==============
+
+bool upgrade_pass(
+    vector<PlacedBay>& sol,
+    const vector<BayType>& types,
+    const vector<Point>& warehouse,
+    const vector<Obstacle>& obstacles,
+    const vector<pair<double,double>>& ceiling,
+    double wh_area
+) {
+    bool improved = false;
+    QSums sums = compute_sums(sol);
+    for (int i = 0; i < (int)sol.size(); i++) {
+        double Q_best = quality_from_sums(sums, wh_area, false);
+        PlacedBay best_bay = sol[i];
+        QSums best_sums = sums;
+        for (auto& t : types) {
+            for (int rot = 0; rot < 2; rot++) {
+                PlacedBay cand = make_candidate_axis_aligned(t, sol[i].x, sol[i].y, rot);
+                if (!valid_candidate(cand.x, cand.y, cand.w, cand.d, cand.h, cand.gap,
+                                     cand.angle, sol, warehouse, obstacles, ceiling, i))
+                    continue;
+                QSums trial = sums;
+                trial.price -= sol[i].price;
+                trial.loads -= sol[i].loads;
+                trial.area  -= (double)sol[i].w * sol[i].d;
+                trial.price += cand.price;
+                trial.loads += cand.loads;
+                trial.area  += (double)cand.w * cand.d;
+                double Q_new = quality_from_sums(trial, wh_area, false);
+                if (Q_new < Q_best - EPS) {
+                    Q_best = Q_new;
+                    best_bay = cand;
+                    best_sums = trial;
+                }
+            }
+        }
+        if (best_bay.id != sol[i].id || best_bay.angle != sol[i].angle ||
+            best_bay.w != sol[i].w || best_bay.d != sol[i].d) {
+            sol[i] = best_bay;
+            sums = best_sums;
+            improved = true;
+        }
+    }
+    return improved;
+}
+
+bool fill_pass(
+    vector<PlacedBay>& sol,
+    const vector<BayType>& types,
+    const vector<Point>& warehouse,
+    const vector<Obstacle>& obstacles,
+    const vector<pair<double,double>>& ceiling,
+    double wh_area
+) {
+    if (types.empty()) return false;
+
+    ScoreNorms norms = compute_norms(types, ceiling);
+    Variant fill_v{SweepOrder::LOWEST_LEFT, TypePrio::BY_PRICE_PER_LOAD, 0,
+                   1.0, 0.5, 0.3, 0.3, 0.2, "fill"};
+    vector<int> type_order = sort_types(types, fill_v.type_prio);
+
+    vector<CornerPoint> corners = initial_corner_points(warehouse);
+    for (auto& p : sol) {
+        auto cp = corners_from_placed_bay(p);
+        for (auto& c : cp) corners.push_back(c);
+    }
+
+    bool any_added = false;
+
+    while (true) {
+        sort_corners(corners, fill_v, warehouse);
+        QSums sums = compute_sums(sol);
+        double Q_now = sol.empty() ? 1e100 : quality_from_sums(sums, wh_area, false);
+
+        struct Best { double score; int ci; int rot; PlacedBay bay; };
+        Best best{-1e100, -1, -1, {}};
+
+        SpatialIndex idx;
+        idx.build(sol);
+
+        for (int ci = 0; ci < (int)corners.size(); ci++) {
+            const CornerPoint& cp = corners[ci];
+            for (int ti : type_order) {
+                const BayType& t = types[ti];
+                for (int rot = 0; rot < 2; rot++) {
+                    PlacedBay cand = make_candidate_axis_aligned(t, cp.x, cp.y, rot);
+                    if (!valid_candidate(cand.x,cand.y,cand.w,cand.d,cand.h,cand.gap,
+                                         cand.angle,sol,warehouse,obstacles,ceiling,-1,&idx))
+                        continue;
+                    double bay_area = (double)cand.w * cand.d;
+                    double Q_new = quality_with_added(sums, cand.price, cand.loads, bay_area, wh_area);
+                    if (!sol.empty() && Q_new >= Q_now - EPS) continue;
+                    double s = score_candidate(cand,fill_v,norms,sol,warehouse,obstacles,ceiling);
+                    bool win = (s > best.score + EPS);
+                    if (!win && fabs(s - best.score) <= EPS) {
+                        if (best.ci < 0) win = true;
+                        else if (cp.x+cp.y < corners[best.ci].x+corners[best.ci].y - EPS) win = true;
+                        else if (fabs(cp.x+cp.y-(corners[best.ci].x+corners[best.ci].y)) <= EPS) {
+                            if (t.id < best.bay.id) win = true;
+                            else if (t.id == best.bay.id && rot < best.rot) win = true;
+                        }
+                    }
+                    if (win) best = {s, ci, rot, cand};
+                }
+            }
+        }
+
+        if (best.ci < 0) break;
+        sol.push_back(best.bay);
+        auto nc = corners_from_placed_bay(best.bay);
+        for (auto& c : nc) corners.push_back(c);
+        filter_corners_inside_envelope(corners, best.bay);
+        any_added = true;
+    }
+    return any_added;
+}
+
+bool remove_k_refill(
+    vector<PlacedBay>& sol,
+    int k,
+    const vector<BayType>& types,
+    const vector<Point>& warehouse,
+    const vector<Obstacle>& obstacles,
+    const vector<pair<double,double>>& ceiling,
+    double wh_area
+) {
+    if ((int)sol.size() < k) return false;
+    bool improved = false;
+
+    QSums full_sums = compute_sums(sol);
+    double Q_full = quality_from_sums(full_sums, wh_area, false);
+
+    auto q_without = [&](int i) -> double {
+        QSums s = full_sums;
+        s.price -= sol[i].price;
+        s.loads -= sol[i].loads;
+        s.area  -= (double)sol[i].w * sol[i].d;
+        if (s.price <= 0 && s.loads <= 0) return 1e100;
+        return quality_from_sums(s, wh_area, s.price <= 0);
+    };
+
+    vector<int> order(sol.size());
+    iota(order.begin(), order.end(), 0);
+    sort(order.begin(), order.end(), [&](int a, int b){
+        return q_without(a) < q_without(b);
+    });
+
+    if (k == 1) {
+        for (int idx : order) {
+            vector<PlacedBay> trial = sol;
+            trial.erase(trial.begin() + idx);
+            fill_pass(trial, types, warehouse, obstacles, ceiling, wh_area);
+            double Q_trial = quality(trial, wh_area);
+            if (Q_trial < Q_full - EPS) {
+                sol = trial;
+                full_sums = compute_sums(sol);
+                Q_full = Q_trial;
+                improved = true;
+                order.resize(sol.size());
+                iota(order.begin(), order.end(), 0);
+                sort(order.begin(), order.end(), [&](int a, int b){
+                    return q_without(a) < q_without(b);
+                });
+            }
+        }
+    } else if (k == 2) {
+        vector<pair<int,int>> pairs;
+        for (int i = 0; i < (int)sol.size() && (int)pairs.size() < 30; i++) {
+            double cx_i = (sol[i].bay_min_x + sol[i].bay_max_x) / 2.0;
+            double cy_i = (sol[i].bay_min_y + sol[i].bay_max_y) / 2.0;
+            double best_dist = 1e18;
+            int best_j = -1;
+            for (int j = i+1; j < (int)sol.size(); j++) {
+                double cx_j = (sol[j].bay_min_x + sol[j].bay_max_x) / 2.0;
+                double cy_j = (sol[j].bay_min_y + sol[j].bay_max_y) / 2.0;
+                double d = (cx_i-cx_j)*(cx_i-cx_j) + (cy_i-cy_j)*(cy_i-cy_j);
+                if (d < best_dist) { best_dist = d; best_j = j; }
+            }
+            if (best_j >= 0) pairs.push_back({i, best_j});
+        }
+        for (auto [i, j] : pairs) {
+            if (i >= (int)sol.size() || j >= (int)sol.size()) continue;
+            vector<PlacedBay> trial = sol;
+            int hi = max(i,j), lo = min(i,j);
+            trial.erase(trial.begin() + hi);
+            trial.erase(trial.begin() + lo);
+            fill_pass(trial, types, warehouse, obstacles, ceiling, wh_area);
+            double Q_trial = quality(trial, wh_area);
+            if (Q_trial < Q_full - EPS) {
+                sol = trial;
+                Q_full = Q_trial;
+                full_sums = compute_sums(sol);
+                improved = true;
+            }
+        }
+    } else { // k == 3
+        if ((int)order.size() < 3) return false;
+        vector<int> to_remove = {order[0], order[1], order[2]};
+        sort(to_remove.rbegin(), to_remove.rend());
+        vector<PlacedBay> trial = sol;
+        for (int idx : to_remove) trial.erase(trial.begin() + idx);
+        fill_pass(trial, types, warehouse, obstacles, ceiling, wh_area);
+        double Q_trial = quality(trial, wh_area);
+        if (Q_trial < Q_full - EPS) {
+            sol = trial;
+            improved = true;
+        }
+    }
+    return improved;
+}
+
+void improve(
+    vector<PlacedBay>& sol,
+    Clock::time_point t_start,
+    double budget_seconds,
+    const vector<BayType>& types,
+    const vector<Point>& warehouse,
+    const vector<Obstacle>& obstacles,
+    const vector<pair<double,double>>& ceiling,
+    double wh_area
+) {
+    while (seconds_since(t_start) < budget_seconds) {
+        bool any = false;
+        any |= upgrade_pass(sol, types, warehouse, obstacles, ceiling, wh_area);
+        if (seconds_since(t_start) >= budget_seconds) break;
+        any |= fill_pass(sol, types, warehouse, obstacles, ceiling, wh_area);
+        if (seconds_since(t_start) >= budget_seconds) break;
+        // remove_k_refill disabled for now — too slow for typical case sizes
+        if (!any) break;
+    }
+}
+
+void solve_case(const string& case_dir, double budget_per_case) {
     auto t0 = Clock::now();
     cout << "\n=== Solving " << case_dir << " ===\n";
     auto warehouse = read_warehouse(case_dir + "/warehouse.csv");
@@ -1186,7 +1525,9 @@ void solve_case(const string& case_dir) {
 
     #pragma omp parallel for schedule(dynamic,1)
     for (int i = 0; i < N; i++) {
+        auto t_v = Clock::now();
         sols[i] = construct_variant(variants[i], types, warehouse, obstacles, ceiling, wh_area);
+        improve(sols[i], t_v, budget_per_case, types, warehouse, obstacles, ceiling, wh_area);
         auto [a,l,p,q] = details(sols[i], wh_area);
         qs[i] = q;
     }
@@ -1194,10 +1535,10 @@ void solve_case(const string& case_dir) {
     int best = 0;
     for (int i = 1; i < N; i++) if (qs[i] < qs[best]) best = i;
 
-    // Validity check
     if (!is_valid_solution(sols[best], warehouse, obstacles, ceiling)) {
         cerr << "WARNING: best solution for " << case_dir << " failed validity check; emitting empty.\n";
         sols[best].clear();
+        qs[best] = 1e100;
     }
 
     for (int i = 0; i < N; i++)
@@ -1218,9 +1559,19 @@ void solve_case(const string& case_dir) {
 
 int main() {
     auto t0 = Clock::now();
+
+    int n_existing = 0;
     for (auto& c : CASES) {
         ifstream f(c + "/warehouse.csv");
-        if (f.good()) solve_case(c);
+        if (f.good()) n_existing++;
+    }
+    double budget_per_case = TOTAL_BUDGET_SECONDS / max(1, n_existing);
+    cout << "cases_found=" << n_existing
+         << " budget_per_case=" << budget_per_case << "s\n";
+
+    for (auto& c : CASES) {
+        ifstream f(c + "/warehouse.csv");
+        if (f.good()) solve_case(c, budget_per_case);
         else cout << "Skipping " << c << "\n";
     }
     cout << "\n[time] total elapsed=" << seconds_since(t0) << "s\n";

@@ -1394,6 +1394,113 @@ bool fill_pass(
     return any_added;
 }
 
+// Fast fill restricted to the local region around the removed bays.
+// Generates corner points only from: (a) corners of each removed bay,
+// (b) corners of bays in sol whose center is within `radius` of any removed bay center.
+// Runs greedy fill (strict Q filter, no lookahead) until no improvement found.
+// Returns true if at least one bay was added.
+bool local_fill_pass(
+    vector<PlacedBay>& sol,
+    const vector<PlacedBay>& removed_bays,
+    double radius,
+    const vector<BayType>& types,
+    const vector<Point>& warehouse,
+    const vector<Obstacle>& obstacles,
+    const vector<pair<double,double>>& ceiling,
+    double wh_area
+) {
+    if (types.empty() || removed_bays.empty()) return false;
+
+    ScoreNorms norms = compute_norms(types, ceiling);
+    Variant fill_v{SweepOrder::LOWEST_LEFT, TypePrio::BY_PRICE_PER_LOAD, 0,
+                   1.0, 0.5, 0.3, 0.3, 0.2, "local_fill"};
+    vector<int> type_order = sort_types(types, fill_v.type_prio);
+
+    // Collect centers of removed bays for proximity test.
+    vector<pair<double,double>> removed_centers;
+    for (auto& rb : removed_bays)
+        removed_centers.push_back({(rb.bay_min_x+rb.bay_max_x)/2.0,
+                                    (rb.bay_min_y+rb.bay_max_y)/2.0});
+
+    auto near_removal = [&](double cx, double cy) -> bool {
+        for (auto [rx, ry] : removed_centers) {
+            double dx = cx-rx, dy = cy-ry;
+            if (dx*dx+dy*dy <= radius*radius) return true;
+        }
+        return false;
+    };
+
+    // Seed corners from removed bays themselves.
+    vector<CornerPoint> corners;
+    for (auto& rb : removed_bays) {
+        auto c = corners_from_placed_bay(rb);
+        for (auto& cp : c) corners.push_back(cp);
+    }
+    // Add corners from bays in sol that are close to the removal.
+    for (auto& p : sol) {
+        double cx = (p.bay_min_x+p.bay_max_x)/2.0;
+        double cy = (p.bay_min_y+p.bay_max_y)/2.0;
+        if (!near_removal(cx, cy)) continue;
+        auto c = corners_from_placed_bay(p);
+        for (auto& cp : c) corners.push_back(cp);
+    }
+    // Also include initial warehouse corners (handles edge/wall placements).
+    auto wh_corners = initial_corner_points(warehouse);
+    for (auto& wc : wh_corners) corners.push_back(wc);
+
+    bool any_added = false;
+
+    while (true) {
+        sort_corners(corners, fill_v, warehouse);
+        QSums sums = compute_sums(sol);
+        double Q_now = sol.empty() ? 1e100 : quality_from_sums(sums, wh_area, false);
+
+        struct Best { double score; int ci; int rot; PlacedBay bay; };
+        Best best{-1e100, -1, -1, {}};
+
+        SpatialIndex idx;
+        idx.build(sol);
+
+        for (int ci = 0; ci < (int)corners.size(); ci++) {
+            const CornerPoint& cp = corners[ci];
+            // Only consider corners inside the local region.
+            if (!near_removal(cp.x, cp.y)) continue;
+            for (int ti : type_order) {
+                const BayType& t = types[ti];
+                for (int rot = 0; rot < 2; rot++) {
+                    PlacedBay cand = make_candidate_axis_aligned(t, cp.x, cp.y, rot);
+                    if (!valid_candidate(cand.x,cand.y,cand.w,cand.d,cand.h,cand.gap,
+                                         cand.angle,sol,warehouse,obstacles,ceiling,-1,&idx))
+                        continue;
+                    double bay_area = (double)cand.w * cand.d;
+                    double Q_new = quality_with_added(sums, cand.price, cand.loads, bay_area, wh_area);
+                    if (!sol.empty() && Q_new >= Q_now - EPS) continue;
+                    double s = score_candidate(cand,fill_v,norms,sol,warehouse,obstacles,ceiling);
+                    bool win = (s > best.score + EPS);
+                    if (!win && fabs(s - best.score) <= EPS) {
+                        if (best.ci < 0) win = true;
+                        else if (cp.x+cp.y < corners[best.ci].x+corners[best.ci].y - EPS) win = true;
+                        else if (fabs(cp.x+cp.y-(corners[best.ci].x+corners[best.ci].y)) <= EPS) {
+                            if (t.id < best.bay.id) win = true;
+                            else if (t.id == best.bay.id && rot < best.rot) win = true;
+                        }
+                    }
+                    if (win) best = {s, ci, rot, cand};
+                }
+            }
+        }
+
+        if (best.ci < 0) break;
+        sol.push_back(best.bay);
+        // Add corners from the newly placed bay.
+        auto nc = corners_from_placed_bay(best.bay);
+        for (auto& c : nc) corners.push_back(c);
+        filter_corners_inside_envelope(corners, best.bay);
+        any_added = true;
+    }
+    return any_added;
+}
+
 bool remove_k_refill(
     vector<PlacedBay>& sol,
     int k,

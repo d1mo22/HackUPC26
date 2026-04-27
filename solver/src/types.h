@@ -23,8 +23,8 @@ namespace fs = std::filesystem;
 
 const vector<string> PREFERRED_CASE_ORDER = {"CaseWeird", "Case1", "Case2", "Case3", "Case0", "Case40", "CaseAngledA", "CaseAngledB", "CaseAngledC", "CaseAngledD", "CaseDiagArmA", "CaseDiagArmB", "CaseDiagArmC", "CaseDiagArmD","CaseForcedAngle"};
 
-const int ITERATIONS = 1000;          // legacy ceiling — actual stop is the deadline
-const double CASE_BUDGET_SECONDS = 25.0;  // wall budget per restart; restarts run in parallel
+const int ITERATIONS = 1500;          // legacy ceiling — actual stop is the deadline
+const double CASE_BUDGET_SECONDS = 30.0;  // wall budget per restart; restarts run in parallel
 const int INITIAL_ADDS = 80;
 const int RESTARTS = 10;
 const int MAX_POINTS_ADD = 80;

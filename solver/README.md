@@ -67,20 +67,67 @@ Cold SA wins on tight axis-aligned cases; hot SA helps angled / forced-angle cas
 
 ### Operators
 
-The hill loop picks one operator per iteration via an adaptive distribution that warms up uniformly and then biases toward operators with a high recent improvement rate.
+The hill loop picks one operator per iteration via an adaptive UCB-style selector. It warms up uniformly for 150 iterations and then biases toward operators with a high recent improvement rate, with exponential weight decay every 300 iterations.
 
-| Operator | What it does |
-|---|---|
-| `add_bay` | Greedy single placement at a candidate point |
-| `replace_bay` | Remove one bay, add a different one in its place |
-| `fill_aggressive` | Add up to 5 bays in one step |
-| `remove_k_and_refill` | Remove k bays, add k+3 (escape local optima) |
-| `shared_gap_refill` | Remove k bays, refill with gap-sharing pairs |
-| `upgrade_bay` | Swap a bay's type/angle in-place |
-| `rotate_compact_and_add` | Rotate to compact, then try a new add |
-| `add_45_degree_bay` | Insert a bay at 45° (angled cases) |
-| `position_perturb_and_add` | Small position delta + follow-up add |
-| `split_bay` | Split one bay into two smaller ones |
+Each operator has a prior weight for axis-aligned (`weight_axis`) and angled (`weight_angled`) warehouses:
+
+| # | Operator | axis w | angled w | What it does |
+|---|---|---|---|---|
+| 0 | `add_bay` | 4 | 4 | Tries up to 500 candidate points (polygon vertices, obstacle corners, existing bay corners/midpoints). For each point tests all types × up to 14 angles. Places the single best-scoring valid bay. |
+| 1 | `replace_bay` | 2 | 2 | Removes a random bay, calls `add_bay` in its place. Reverts if Q worsens. |
+| 2 | `fill_aggressive` | 0 | 0 | Calls `add_bay` up to 5 times in one step. Weight 0 means it is skipped during warmup and only activated by the adaptive selector post-warmup. |
+| 3 | `remove_k_and_refill` | 6 | 6 | Removes k = min(4, \|sol\|/5) random bays, then calls `add_bay` k+3 times. Reverts if Q worsens. Main escape-from-local-optima operator. |
+| 4 | `shared_gap_refill` | 8 | 8 | Removes k = min(6, max(2, \|sol\|/4)) bays — randomly or in a spatial cluster (25% chance). Refills using `add_shared_gap_bay` (back-to-back gap sharing) with `add_bay` fallback. Highest prior weight. |
+| 5 | `upgrade_bay` | 4 | 4 | Removes a random bay and tries every type × angle at the **same (x,y) position**. Reinstalls the one with the lowest `quality_with_added`, or the original if nothing is better. Pure in-place type/angle swap. |
+| 6 | `rotate_compact_and_add` | 1 | 4 | Picks up to 4 random bays, tries rotating each to all alternative angles. For each valid rotation attempts `add_shared_gap_bay` (or `add_bay`). Keeps the globally best result. |
+| 7 | `add_45_degree_bay` | 1 | 2 | Compacts existing diagonal bays toward the nearest wall/obstacle, then calls `add_bay` restricted to angles {45°, 135°, 225°, 315°}. Compacts again. Reverts if Q worsens. |
+| 8 | `position_perturb_and_add` | 2 | 1 | Shifts up to 2 random bays by ±100 mm or ±300 mm in X or Y. For each valid shifted position attempts `add_shared_gap_bay`. Keeps the best result. |
+| 9 | `split_bay` | 2 | 2 | Finds diagonal bays whose bounding box is ≥1.15× their actual area. Removes the victim and attempts 12 random placements of smaller types within its bbox at axis-aligned angles. Accepts only if ≥2 placed **and** Q improved. |
+
+### Initial solutions
+
+Two independent construction paths run before search begins.
+
+#### `build_initial` — one per restart (×10)
+
+Each restart (`r = 0..9`) uses `mode = r % 4` (see scoring modes below).
+
+1. **Shelf-pack phase** (axis-aligned warehouses only): tests 4 variants of `shelf_pack_into`:
+   - orientation 0, offset (0, 0)
+   - orientation 1, offset (0, 0)
+   - orientation 0, offset (min_w/2, 0)
+   - orientation 1, offset (0, min_w/2)
+
+   Keeps the variant with the lowest Q.
+
+2. **Greedy fill phase**: calls `add_bay` up to `INITIAL_ADDS = 80` times.
+
+#### `build_optimized_greedy` — one concurrent thread (mode = BALANCED)
+
+More elaborate construction running in parallel with the restarts:
+
+1. **Shelf-pack**: 8 variants (orientation 0/1 × off_x ∈ {0, min_w/2} × off_y ∈ {0, min_w/2}).
+2. **Greedy fill**: 200 iterations of `add_shared_gap_bay` → `add_bay` fallback.
+3. **Light refinement**: 5 rounds of `upgrade_bay` + `shared_gap_refill`.
+
+#### `shelf_pack_into` (base of both)
+
+Row-by-row greedy fill over the warehouse bounding box. Outer loop advances Y by the tallest bay placed in the current row (or Y_SKIP=200 mm if the row was empty). Inner loop advances X by the bay footprint width, or X_STEP=100 mm on failure. Tries the primary orientation first, then the alternative. Stops at MAX_ROWS=500 or the bounding box top.
+
+### Scoring modes for `bay_score_mode`
+
+Used to rank bay types during construction and by some operators (`add_bay`, `upgrade_bay`, `shelf_pack_into`).
+
+| Value | Name | Score formula | Prioritises |
+|---|---|---|---|
+| 0 | `CHEAP_LOAD` | `-price/loads` | Bays with best price-per-load ratio |
+| 1 | `BIG_AREA` | `area / wh_area` | Bays with the largest footprint |
+| 2 | `LOW_GAP` | `-gap_ratio + 0.2·area_ratio` | Bays with minimal gap overhead |
+| 3 | `BALANCED` | `2·area_ratio − 1·price_load − 0.5·gap_ratio` | Compromise across all dimensions |
+
+Two small tie-breaking adjustments are applied on top via `candidate_score_mode`:
+- **+0.05** if the placement angle is axis-aligned (0°/90°/180°/270°)
+- **−0.000001 × (x+y)** to break ties toward the origin
 
 ### Solution accumulator (`struct QSums`)
 
@@ -100,7 +147,7 @@ const int    ITERATIONS            = 450;     // hill/SA loop cap
 const int    INITIAL_ADDS          = 80;      // initial-solution placement budget
 const int    RESTARTS              = 10;
 const int    ANGLE_SAMPLE          = 14;      // 360° angle search resolution
-const double CASE_BUDGET_SECONDS   = 25.0;    // wall-time deadline per case
+const double CASE_BUDGET_SECONDS   = 200.0;    // wall-time deadline per case
 ```
 
 Each hill loop stops on `Clock::now() < deadline && iter < ITERATIONS`. The judge limit is 30s; budget is 25s with margin. Bump `ITERATIONS` to a large value (e.g. 100 000) if you want pure deadline-bound behaviour.

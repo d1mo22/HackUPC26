@@ -4,9 +4,10 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon as MplPolygon, Patch
 
-CASES = ["CaseWeird", "Case1", "Case2", "Case3", "Case0", "Case40", "CaseAngledA", "CaseAngledB", "CaseAngledC", "CaseAngledD",
-         # Ordenados por calidad visual (según mi criterio)
-         "CaseDiagArmA", "CaseDiagArmB", "CaseDiagArmC", "CaseDiagArmD", "CaseForcedAngle", "Archivo"]
+CASES = ["PrivateCase2_kettle"]
+# ["CaseWeird", "Case1", "Case2", "Case3", "Case0", "Case40", "CaseAngledA", "CaseAngledB", "CaseAngledC", "CaseAngledD",
+#  # Ordenados por calidad visual (según mi criterio)
+#  "CaseDiagArmA", "CaseDiagArmB", "CaseDiagArmC", "CaseDiagArmD", "CaseForcedAngle", "Archivo"]
 CASES_PER_FIGURE = 2
 
 

@@ -119,6 +119,32 @@ bool any_proper_segment_crossing(const vector<Point>& a, const vector<Point>& b)
     return false;
 }
 
+// Strict point-in-polygon test using ray casting only.
+// Returns true iff p is in the interior (boundary points return false).
+// Works for simple polygons; for non-simple/self-touching polygons it uses the
+// even-odd rule, which correctly identifies "holes" formed by stitched outer/inner
+// boundaries (as in warehouses with internal cutouts) as outside.
+static bool point_strictly_inside_polygon(Point p, const vector<Point>& poly) {
+    bool inside = false;
+
+    for (int i = 0, j = (int)poly.size() - 1; i < (int)poly.size(); j = i++) {
+        Point a = poly[i];
+        Point b = poly[j];
+
+        bool crosses_y = (a.y > p.y) != (b.y > p.y);
+
+        if (crosses_y) {
+            double x_intersect = (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x;
+
+            if (p.x < x_intersect) {
+                inside = !inside;
+            }
+        }
+    }
+
+    return inside;
+}
+
 bool polygon_inside_polygon(const vector<Point>& small, const vector<Point>& big) {
     for (auto p : small) {
         if (!point_inside_or_on_polygon(p, big)) {
@@ -127,6 +153,27 @@ bool polygon_inside_polygon(const vector<Point>& small, const vector<Point>& big
     }
 
     if (any_proper_segment_crossing(small, big)) {
+        return false;
+    }
+
+    // For non-simple polygons (warehouses with internal cutouts where the
+    // outer and inner boundaries are stitched into a single vertex list),
+    // the two checks above can be fooled: every corner of `small` may lie ON
+    // a `big` edge while `small`'s interior is in a hole, with no proper edge
+    // crossings. Defend against this by requiring the centroid of `small` to
+    // be strictly inside `big`. For convex `small` (rotated rectangles), this
+    // is sufficient when combined with the corner + crossing checks above.
+    if (small.empty()) return true;
+
+    Point centroid = {0, 0};
+    for (auto p : small) {
+        centroid.x += p.x;
+        centroid.y += p.y;
+    }
+    centroid.x /= (double)small.size();
+    centroid.y /= (double)small.size();
+
+    if (!point_strictly_inside_polygon(centroid, big)) {
         return false;
     }
 

@@ -5,20 +5,16 @@ SRCS = src/geometry.cpp src/csv_io.cpp src/case_io.cpp src/spatial.cpp src/scori
 OBJS = $(SRCS:.cpp=.o)
 
 TARGET = solver
-GREEDY = greedy
 
-all: $(TARGET) $(GREEDY)
+all: $(TARGET)
 
 $(TARGET): $(OBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $^
-
-$(GREEDY): greedy.cpp
-	$(CXX) $(CXXFLAGS) -o $@ $<
 
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 clean:
-	rm -f $(OBJS) $(TARGET) $(GREEDY)
+	rm -f $(OBJS) $(TARGET)
 
 .PHONY: all clean

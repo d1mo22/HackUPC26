@@ -1063,6 +1063,7 @@ bool is_valid_solution(
                 ceiling,
                 i
             )) {
+            cerr << "INVALID_BAY id=" << p.id << " x=" << p.x << " y=" << p.y << " angle=" << p.angle << " w=" << p.w << " d=" << p.d << "\n";
             return false;
         }
     }
@@ -1220,65 +1221,7 @@ double seconds_since(Clock::time_point start) {
 }
 
 // ================= GREEDY INITIALISATION =================
-// Runs a fast deterministic construction pass:
-//   Phase 1 — shelf-pack (axis-aligned warehouses only)
-//   Phase 2 — greedy add_bay / add_shared_gap_bay fill
-//   Phase 3 — light refinement (upgrade + shared_gap_refill)
-// Returns the best solution found; takes < 5 s on all known cases.
-vector<PlacedBay> build_optimized_greedy(
-    const vector<BayType>& types,
-    const vector<Point>& warehouse,
-    const vector<Obstacle>& obstacles,
-    const vector<pair<double, double>>& ceiling,
-    double wh_area,
-    int mode
-) {
-    OperatorContext ctx{types, warehouse, obstacles, ceiling, wh_area, mode};
-    vector<PlacedBay> sol;
-
-    bool axis_aligned = warehouse_is_axis_aligned(warehouse);
-
-    // Phase 1: shelf-pack for axis-aligned warehouses
-    if (axis_aligned) {
-        int min_w = INT_MAX;
-        for (auto& t : types) min_w = min(min_w, t.w);
-        double off = min_w / 2.0;
-
-        double best_q = 1e100;
-        for (int orient = 0; orient < 2; orient++) {
-            for (double ox : {0.0, off}) {
-                for (double oy : {0.0, off}) {
-                    vector<PlacedBay> tmp;
-                    shelf_pack_into(tmp, types, warehouse, obstacles, ceiling, wh_area, mode, orient, ox, oy);
-                    double q = quality(tmp, wh_area);
-                    if (q < best_q) { best_q = q; sol = tmp; }
-                }
-            }
-        }
-    }
-
-    // Phase 2: greedy fill — shared-gap first, then plain add_bay
-    for (int i = 0; i < 200; i++) {
-        bool added = false;
-        if (!sol.empty())
-            added = add_shared_gap_bay(sol, types, warehouse, obstacles, ceiling, wh_area, mode);
-        if (!added) {
-            if (!add_bay(sol, ctx, ANGLES)) break;
-        }
-    }
-
-    // Phase 3: light refinement
-    double prev_q = quality(sol, wh_area);
-    for (int iter = 0; iter < 5; iter++) {
-        if (!sol.empty()) upgrade_bay(sol, ctx);
-        shared_gap_refill(sol, ctx);
-        double cur_q = quality(sol, wh_area);
-        if (fabs(cur_q - prev_q) < 0.01) break;
-        prev_q = cur_q;
-    }
-
-    return sol;
-}
+// (removed — no longer used)
 
 void solve_case(const string& case_dir) {
     auto case_start = Clock::now();
@@ -1329,12 +1272,6 @@ void solve_case(const string& case_dir) {
         futures.push_back(async(launch::async, worker, r));
     }
 
-    // Greedy runs concurrently on its own thread (mode=BALANCED=3)
-    auto greedy_future = async(launch::async, [&]() {
-        rng.seed(42);
-        return build_optimized_greedy(types, warehouse, obstacles, ceiling, wh_area, BALANCED);
-    });
-
     vector<PlacedBay> best_global;
     double best_global_q = 1e100;
 
@@ -1349,18 +1286,6 @@ void solve_case(const string& case_dir) {
         if (valid && q < best_global_q) {
             best_global = sol;
             best_global_q = q;
-        }
-    }
-
-    // Collect greedy result and compare
-    {
-        auto gsol = greedy_future.get();
-        if (is_valid_solution(gsol, warehouse, obstacles, ceiling)) {
-            double gq = quality(gsol, wh_area);
-            if (gq < best_global_q) {
-                best_global = gsol;
-                best_global_q = gq;
-            }
         }
     }
 

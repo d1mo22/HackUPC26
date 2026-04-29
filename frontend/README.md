@@ -71,7 +71,7 @@ frontend/
 ## Data flow
 
 ```
-┌─────────────┐  drag/drop CSVs   ┌─────────────────┐  csvParser.ts   ┌──────────────┐
+┌─────────────┐  drag/drop CSVs  ┌─────────────────┐  csvParser.ts   ┌──────────────┐
 │ FileLoader  │ ───────────────► │ App.tsx (state) │ ──────────────► │ Canvas       │
 └─────────────┘                  │  warehouseCase  │                 │ (2D/3D)      │
                                  │  rawFiles       │                 └──────────────┘
